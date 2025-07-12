@@ -1,0 +1,68 @@
+{
+    "pull-request-title-pattern": "chore: release ${version} 🚀",
+    "signoff": "Julien Plu <959590+jplu@users.noreply.github.com>",
+    "changelog-sections": [
+        {
+            "type": "feat",
+            "section": "Features",
+            "hidden": false
+        },
+        {
+            "type": "fix",
+            "section": "Bug Fixes",
+            "hidden": false
+        },
+        {
+            "type": "docs",
+            "section": "Documentation",
+            "hidden": false
+        },
+        {
+            "type": "deps",
+            "section": "Dependencies",
+            "hidden": false
+        },
+        {
+            "type": "ci",
+            "section": "Continuous Integration",
+            "hidden": true
+        },
+        {
+            "type": "deps",
+            "hidden": true,
+            "section": "Dependency Updates"
+        },
+        {
+            "type": "perf",
+            "hidden": true,
+            "section": "Performance Improvements"
+        },
+        {
+            "type": "refactor",
+            "hidden": true,
+            "section": "Refactoring"
+        },
+        {
+            "type": "test",
+            "hidden": true,
+            "section": "Tests"
+        },
+        {
+            "type": "chore",
+            "section": "Other",
+            "hidden": true
+        }
+    ],
+    "packages": {
+        ".": {
+            "prerelease-type": "dev",
+            "include-component-in-tag": false,
+            "include-v-in-tag": true,
+            "release-type": "go",
+            "prerelease": true,
+            "bump-minor-pre-major": true,
+            "bump-patch-for-minor-pre-major": true
+        }
+    },
+    "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json"
+}
