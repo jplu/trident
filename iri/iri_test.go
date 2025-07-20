@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUTHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
@@ -354,7 +354,10 @@ func TestWrongRelativeParsingOnScheme(t *testing.T) {
 
 // resolveTest is a helper struct for defining resolution test cases.
 type resolveTest struct {
-	relative, base, expected string
+	name     string
+	relative string
+	base     string
+	expected string
 }
 
 // TestResolveRelativeIRI contains a comprehensive suite of resolution tests,
@@ -363,206 +366,795 @@ type resolveTest struct {
 func TestResolveRelativeIRI(t *testing.T) {
 	t.Parallel()
 	examples := []resolveTest{
-		{"/.", "http://a/b/c/d;p?q", "http://a/"},
-		{"/.foo", "http://a/b/c/d;p?q", "http://a/.foo"},
-		{".foo", "http://a/b/c/d;p?q", "http://a/b/c/.foo"},
-		{"g:h", "http://a/b/c/d;p?q", "g:h"},
-		{"g", "http://a/b/c/d;p?q", "http://a/b/c/g"},
-		{"./g", "http://a/b/c/d;p?q", "http://a/b/c/g"},
-		{"g/", "http://a/b/c/d;p?q", "http://a/b/c/g/"},
-		{"/g", "http://a/b/c/d;p?q", "http://a/g"},
-		{"//g", "http://a/b/c/d;p?q", "http://g"},
-		{"?y", "http://a/b/c/d;p?q", "http://a/b/c/d;p?y"},
-		{"g?y", "http://a/b/c/d;p?q", "http://a/b/c/g?y"},
-		{"#s", "http://a/b/c/d;p?q", "http://a/b/c/d;p?q#s"},
-		{"g#s", "http://a/b/c/d;p?q", "http://a/b/c/g#s"},
-		{"g?y#s", "http://a/b/c/d;p?q", "http://a/b/c/g?y#s"},
-		{";x", "http://a/b/c/d;p?q", "http://a/b/c/;x"},
-		{"g;x", "http://a/b/c/d;p?q", "http://a/b/c/g;x"},
-		{"g;x?y#s", "http://a/b/c/d;p?q", "http://a/b/c/g;x?y#s"},
-		{"", "http://a/b/c/d;p?q", "http://a/b/c/d;p?q"},
-		{".", "http://a/b/c/d;p?q", "http://a/b/c/"},
-		{"./", "http://a/b/c/d;p?q", "http://a/b/c/"},
-		{"..", "http://a/b/c/d;p?q", "http://a/b/"},
-		{"../", "http://a/b/c/d;p?q", "http://a/b/"},
-		{"../g", "http://a/b/c/d;p?q", "http://a/b/g"},
-		{"../..", "http://a/b/c/d;p?q", "http://a/"},
-		{"../../", "http://a/b/c/d;p?q", "http://a/"},
-		{"../../g", "http://a/b/c/d;p?q", "http://a/g"},
-		{"/./g", "http://a/b/c/d;p?q", "http://a/g"},
-		{"/../g", "http://a/b/c/d;p?q", "http://a/g"},
-		{"g.", "http://a/b/c/d;p?q", "http://a/b/c/g."},
-		{".g", "http://a/b/c/d;p?q", "http://a/b/c/.g"},
-		{"g..", "http://a/b/c/d;p?q", "http://a/b/c/g.."},
-		{"..g", "http://a/b/c/d;p?q", "http://a/b/c/..g"},
-		{"./../g", "http://a/b/c/d;p?q", "http://a/b/g"},
-		{"./g/.", "http://a/b/c/d;p?q", "http://a/b/c/g/"},
-		{"g/./h", "http://a/b/c/d;p?q", "http://a/b/c/g/h"},
-		{"g/../h", "http://a/b/c/d;p?q", "http://a/b/c/h"},
-		{"http:g", "http://a/b/c/d;p?q", "http:g"},
-		{"http:", "http://a/b/c/d;p?q", "http:"},
-		{"../r", "http://ex/x/y/z", "http://ex/x/r"},
-		{"q/r", "http://ex/x/y", "http://ex/x/q/r"},
-		{"q/r#s", "http://ex/x/y", "http://ex/x/q/r#s"},
-		{"z/", "http://ex/x/y/", "http://ex/x/y/z/"},
-		{"#Animal", "file:/swap/test/animal.rdf", "file:/swap/test/animal.rdf#Animal"},
-		{"/r", "file:/ex/x/y/z", "file:/r"},
-		{"s", "http://example.com", "http://example.com/s"},
-		{"g/./h", "http://a/b/c/d;p?q", "http://a/b/c/g/h"},
-		{"g/../h", "http://a/b/c/d;p?q", "http://a/b/c/h"},
-		{"g;x=1/./y", "http://a/b/c/d;p?q", "http://a/b/c/g;x=1/y"},
-		{"g;x=1/../y", "http://a/b/c/d;p?q", "http://a/b/c/y"},
-		{"g?y/./x", "http://a/b/c/d;p?q", "http://a/b/c/g?y/./x"},
-		{"g?y/../x", "http://a/b/c/d;p?q", "http://a/b/c/g?y/../x"},
-		{"g#s/./x", "http://a/b/c/d;p?q", "http://a/b/c/g#s/./x"},
-		{"g#s/../x", "http://a/b/c/d;p?q", "http://a/b/c/g#s/../x"},
-		{"/a/b/c/./../../g", "http://a/b/c/d;p?q", "http://a/a/g"},
-		{"g", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g"},
-		{"./g", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g"},
-		{"g/", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g/"},
-		{"/g", "http://a/b/c/d;p?q=1/2", "http://a/g"},
-		{"//g", "http://a/b/c/d;p?q=1/2", "http://g"},
-		{"?y", "http://a/b/c/d;p?q=1/2", "http://a/b/c/d;p?y"},
-		{"g?y", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g?y"},
-		{"g?y/./x", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g?y/./x"},
-		{"g?y/../x", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g?y/../x"},
-		{"g#s", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g#s"},
-		{"g#s/./x", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g#s/./x"},
-		{"g#s/../x", "http://a/b/c/d;p?q=1/2", "http://a/b/c/g#s/../x"},
-		{"./", "http://a/b/c/d;p?q=1/2", "http://a/b/c/"},
-		{"../", "http://a/b/c/d;p?q=1/2", "http://a/b/"},
-		{"../g", "http://a/b/c/d;p?q=1/2", "http://a/b/g"},
-		{"../../", "http://a/b/c/d;p?q=1/2", "http://a/"},
-		{"../../g", "http://a/b/c/d;p?q=1/2", "http://a/g"},
-		{"g", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g"},
-		{"./g", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g"},
-		{"g/", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g/"},
-		{"g?y", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g?y"},
-		{";x", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/;x"},
-		{"g;x", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g;x"},
-		{"g;x=1/./y", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/g;x=1/y"},
-		{"g;x=1/../y", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/y"},
-		{"./", "http://a/b/c/d;p=1/2?q", "http://a/b/c/d;p=1/"},
-		{"../", "http://a/b/c/d;p=1/2?q", "http://a/b/c/"},
-		{"../g", "http://a/b/c/d;p=1/2?q", "http://a/b/c/g"},
-		{"../../", "http://a/b/c/d;p=1/2?q", "http://a/b/"},
-		{"../../g", "http://a/b/c/d;p=1/2?q", "http://a/b/g"},
-		{"g:h", "fred:///s//a/b/c", "g:h"},
-		{"g", "fred:///s//a/b/c", "fred:///s//a/b/g"},
-		{"./g", "fred:///s//a/b/c", "fred:///s//a/b/g"},
-		{"g/", "fred:///s//a/b/c", "fred:///s//a/b/g/"},
-		{"/g", "fred:///s//a/b/c", "fred:///g"},
-		{"//g", "fred:///s//a/b/c", "fred://g"},
-		{"//g/x", "fred:///s//a/b/c", "fred://g/x"},
-		{"///g", "fred:///s//a/b/c", "fred:///g"},
-		{"./", "fred:///s//a/b/c", "fred:///s//a/b/"},
-		{"../", "fred:///s//a/b/c", "fred:///s//a/"},
-		{"../g", "fred:///s//a/b/c", "fred:///s//a/g"},
-		{"../../", "fred:///s//a/b/c", "fred:///s//"},
-		{"../../g", "fred:///s//a/b/c", "fred:///s//g"},
-		{"../../../g", "fred:///s//a/b/c", "fred:///s/g"},
-		{"../../../../g", "fred:///s//a/b/c", "fred:///g"},
-		{"g:h", "http:///s//a/b/c", "g:h"},
-		{"g", "http:///s//a/b/c", "http:///s//a/b/g"},
-		{"./g", "http:///s//a/b/c", "http:///s//a/b/g"},
-		{"g/", "http:///s//a/b/c", "http:///s//a/b/g/"},
-		{"/g", "http:///s//a/b/c", "http:///g"},
-		{"//g", "http:///s//a/b/c", "http://g"},
-		{"//g/x", "http:///s//a/b/c", "http://g/x"},
-		{"///g", "http:///s//a/b/c", "http:///g"},
-		{"./", "http:///s//a/b/c", "http:///s//a/b/"},
-		{"../", "http:///s//a/b/c", "http:///s//a/"},
-		{"../g", "http:///s//a/b/c", "http:///s//a/g"},
-		{"../../", "http:///s//a/b/c", "http:///s//"},
-		{"../../g", "http:///s//a/b/c", "http:///s//g"},
-		{"../../../g", "http:///s//a/b/c", "http:///s/g"},
-		{"../../../../g", "http:///s//a/b/c", "http:///g"},
-		{"bar:abc", "foo:xyz", "bar:abc"},
-		{"../abc", "http://example/x/y/z", "http://example/x/abc"},
-		{"http://example/x/abc", "http://example2/x/y/z", "http://example/x/abc"},
-		{"q/r#s/t", "http://ex/x/y", "http://ex/x/q/r#s/t"},
-		{"ftp://ex/x/q/r", "http://ex/x/y", "ftp://ex/x/q/r"},
-		{"", "http://ex/x/y", "http://ex/x/y"},
-		{"", "http://ex/x/y/", "http://ex/x/y/"},
-		{"", "http://ex/x/y/pdq", "http://ex/x/y/pdq"},
-		{"../abc", "file:/e/x/y/z", "file:/e/x/abc"},
-		{"/example/x/abc", "file:/example2/x/y/z", "file:/example/x/abc"},
-		{"../r", "file:/ex/x/y/z", "file:/ex/x/r"},
-		{"q/r", "file:/ex/x/y", "file:/ex/x/q/r"},
-		{"q/r#s", "file:/ex/x/y", "file:/ex/x/q/r#s"},
-		{"q/r#", "file:/ex/x/y", "file:/ex/x/q/r#"},
-		{"q/r#s/t", "file:/ex/x/y", "file:/ex/x/q/r#s/t"},
-		{"ftp://ex/x/q/r", "file:/ex/x/y", "ftp://ex/x/q/r"},
-		{"", "file:/ex/x/y", "file:/ex/x/y"},
-		{"", "file:/ex/x/y/", "file:/ex/x/y/"},
-		{"", "file:/ex/x/y/pdq", "file:/ex/x/y/pdq"},
-		{"z/", "file:/ex/x/y/", "file:/ex/x/y/z/"},
 		{
-			"file://meetings.example.com/cal#m1",
-			"file:/devel/WWW/2000/10/swap/test/reluri-1.n3",
-			"file://meetings.example.com/cal#m1",
+			name:     "RFC3986 Normal Example: path /.",
+			relative: "/.",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/"},
+		{
+			name:     "RFC3986 Normal Example: path /.foo",
+			relative: "/.foo",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/.foo",
 		},
 		{
-			"file://meetings.example.com/cal#m1",
-			"file:/home/connolly/w3ccvs/WWW/2000/10/swap/test/reluri-1.n3",
-			"file://meetings.example.com/cal#m1",
+			name:     "RFC3986 Normal Example: path .foo",
+			relative: ".foo",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/.foo",
 		},
-		{"./#blort", "file:/some/dir/foo", "file:/some/dir/#blort"},
-		{"./#", "file:/some/dir/foo", "file:/some/dir/#"},
-		{"./", "http://example/x/abc.efg", "http://example/x/"},
-		{"./q:r", "http://ex/x/y", "http://ex/x/q:r"},
-		{"./p=q:r", "http://ex/x/y", "http://ex/x/p=q:r"},
-		{"?pp/rr", "http://ex/x/y?pp/qq", "http://ex/x/y?pp/rr"},
-		{"y/z", "http://ex/x/y?pp/qq", "http://ex/x/y/z"},
-		{"y?q", "http://ex/x/y?q", "http://ex/x/y?q"},
-		{"/x/y?q", "http://ex?p", "http://ex/x/y?q"},
-		{"c/d", "foo:a/b", "foo:a/c/d"},
-		{"/c/d", "foo:a/b", "foo:/c/d"},
-		{"", "foo:a/b?c#d", "foo:a/b?c"},
-		{"b/c", "foo:a", "foo:b/c"},
-		{"../b/c", "foo:/a/y/z", "foo:/a/b/c"},
-		{"./b/c", "foo:a", "foo:b/c"},
-		{"/./b/c", "foo:a", "foo:/b/c"},
-		{"../../d", "foo://a//b/c", "foo://a/d"},
-		{".", "foo:a", "foo:"},
-		{"..", "foo:a", "foo:"},
-		{"abc", "http://example/x/y%2Fz", "http://example/x/abc"},
-		{"../../x%2Fabc", "http://example/a/x/y/z", "http://example/a/x%2Fabc"},
-		{"../x%2Fabc", "http://example/a/x/y%2Fz", "http://example/a/x%2Fabc"},
-		{"abc", "http://example/x%2Fy/z", "http://example/x%2Fy/abc"},
-		{"q%3Ar", "http://ex/x/y", "http://ex/x/q%3Ar"},
-		{"/x%2Fabc", "http://example/x/y%2Fz", "http://example/x%2Fabc"},
-		{"/x%2Fabc", "http://example/x/y/z", "http://example/x%2Fabc"},
-		{"http://example/a/b?c/../d", "foo:bar", "http://example/a/b?c/../d"},
-		{"http://example/a/b#c/../d", "foo:bar", "http://example/a/b#c/../d"},
-		{"http:this", "http://example.org/base/uri", "http:this"},
-		{"http:this", "http:base", "http:this"},
 		{
-			"mini1.xml",
-			"file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/",
-			"file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/mini1.xml",
+			name:     "RFC3986 Normal Example: new scheme",
+			relative: "g:h",
+			base:     "http://a/b/c/d;p?q",
+			expected: "g:h",
 		},
-		{"?bar", "file:foo", "file:foo?bar"},
-		{"#bar", "file:foo", "file:foo#bar"},
-		{"/lv2.h", "file:foo", "file:/lv2.h"},
-		{"///lv2.h", "file:foo", "file:///lv2.h"},
-		{"lv2.h", "file:foo", "file:lv2.h"},
-		{".", "file:", "file:"},
-		{"..", "file:", "file:"},
-		{"./", "file:", "file:"},
-		{"../", "file:", "file:"},
-		{"./.", "file:", "file:"},
-		{"../..", "file:", "file:"},
 		{
-			"http:./examplxm+ns/Seq/exhttpwsa//DtaAccnss/tencile#frag",
-			"http://foo",
-			"http:./examplxm+ns/Seq/exhttpwsa//DtaAccnss/tencile#frag",
+			name:     "RFC3986 Normal Example: relative path",
+			relative: "g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g",
+		},
+		{
+			name:     "RFC3986 Normal Example: relative dot-slash",
+			relative: "./g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g",
+		},
+		{
+			name:     "RFC3986 Normal Example: relative path with slash",
+			relative: "g/",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g/",
+		},
+		{
+			name:     "RFC3986 Normal Example: path from root",
+			relative: "/g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/g",
+		},
+		{
+			name:     "RFC3986 Normal Example: scheme-relative",
+			relative: "//g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://g",
+		},
+		{
+			name:     "RFC3986 Normal Example: query only",
+			relative: "?y",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/d;p?y",
+		},
+		{
+			name:     "RFC3986 Normal Example: path and query",
+			relative: "g?y",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g?y",
+		},
+		{
+			name:     "RFC3986 Normal Example: fragment only",
+			relative: "#s",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/d;p?q#s",
+		},
+		{
+			name:     "RFC3986 Normal Example: path and fragment",
+			relative: "g#s",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g#s",
+		},
+		{
+			name:     "RFC3986 Normal Example: path, query, fragment",
+			relative: "g?y#s",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g?y#s",
+		},
+		{
+			name:     "RFC3986 Normal Example: path with semicolon",
+			relative: ";x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/;x",
+		},
+		{
+			name:     "RFC3986 Normal Example: segment with semicolon",
+			relative: "g;x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g;x",
+		},
+		{
+			name:     "RFC3986 Normal Example: all components",
+			relative: "g;x?y#s",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g;x?y#s",
+		},
+		{
+			name:     "RFC3986 Normal Example: empty reference",
+			relative: "",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/d;p?q",
+		},
+		{
+			name:     "RFC3986 Normal Example: single dot",
+			relative: ".",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/",
+		},
+		{
+			name:     "RFC3986 Normal Example: single dot-slash",
+			relative: "./",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/",
+		},
+		{
+			name:     "RFC3986 Normal Example: double dot",
+			relative: "..",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/",
+		},
+		{
+			name:     "RFC3986 Normal Example: double dot-slash",
+			relative: "../",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/",
+		},
+		{
+			name:     "RFC3986 Normal Example: path up one level",
+			relative: "../g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/g",
+		},
+		{
+			name:     "RFC3986 Normal Example: path up two levels",
+			relative: "../..",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/",
+		},
+		{
+			name:     "RFC3986 Normal Example: path up two levels slash",
+			relative: "../../",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/",
+		},
+		{
+			name:     "RFC3986 Normal Example: path up two levels with new segment",
+			relative: "../../g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/g",
+		},
+		{
+			name:     "RFC3986 Abnormal: path with dot-dot at root",
+			relative: "/../g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/g",
+		},
+		{
+			name:     "RFC3986 Abnormal: segment ending in dot",
+			relative: "g.",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g.",
+		},
+		{
+			name:     "RFC3986 Abnormal: segment starting with dot",
+			relative: ".g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/.g",
+		},
+		{
+			name:     "RFC3986 Abnormal: segment ending in double-dot",
+			relative: "g..",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g..",
+		},
+		{
+			name:     "RFC3986 Abnormal: segment starting with double-dot",
+			relative: "..g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/..g",
+		},
+		{
+			name:     "RFC3986 Abnormal: nonsensical path",
+			relative: "./../g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/g",
+		},
+		{
+			name:     "RFC3986 Abnormal: trailing dot segment",
+			relative: "./g/.",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g/",
+		},
+		{
+			name:     "RFC3986 Abnormal: middle dot segment",
+			relative: "g/./h",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g/h",
+		},
+		{
+			name:     "RFC3986 Abnormal: path normalization up and down",
+			relative: "g/../h",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/h",
+		},
+		{
+			name:     "RFC3986 Opaque URI",
+			relative: "http:g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http:g",
+		},
+		{
+			name:     "RFC3986 Opaque URI empty path",
+			relative: "http:",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http:",
+		},
+		{
+			name:     "Path traversal up one level",
+			relative: "../r",
+			base:     "http://ex/x/y/z",
+			expected: "http://ex/x/r",
+		},
+		{
+			name:     "Simple relative path from directory",
+			relative: "q/r",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/q/r",
+		},
+		{
+			name:     "Simple relative path with fragment",
+			relative: "q/r#s",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/q/r#s",
+		},
+		{
+			name:     "Simple relative path from directory with trailing slash",
+			relative: "z/",
+			base:     "http://ex/x/y/",
+			expected: "http://ex/x/y/z/",
+		},
+		{
+			name:     "Fragment on file URI",
+			relative: "#Animal",
+			base:     "file:/swap/test/animal.rdf",
+			expected: "file:/swap/test/animal.rdf#Animal",
+		},
+		{
+			name:     "Absolute path on file URI",
+			relative: "/r",
+			base:     "file:/ex/x/y/z",
+			expected: "file:/r"},
+		{
+			name:     "Relative path from authority-only IRI",
+			relative: "s",
+			base:     "http://example.com",
+			expected: "http://example.com/s",
+		},
+		{
+			name:     "Path normalization with params",
+			relative: "g;x=1/./y",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g;x=1/y",
+		},
+		{
+			name:     "Path normalization up and down with params",
+			relative: "g;x=1/../y",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/y",
+		},
+		{
+			name:     "Dot segment in query",
+			relative: "g?y/./x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g?y/./x",
+		},
+		{
+			name:     "Dot-dot segment in query",
+			relative: "g?y/../x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g?y/../x",
+		},
+		{
+			name:     "Dot segment in fragment",
+			relative: "g#s/./x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g#s/./x",
+		},
+		{
+			name:     "Dot-dot segment in fragment",
+			relative: "g#s/../x",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/b/c/g#s/../x",
+		},
+		{
+			name:     "Abnormal path normalization from root",
+			relative: "/a/b/c/./../../g",
+			base:     "http://a/b/c/d;p?q",
+			expected: "http://a/a/g",
+		},
+		{
+			name:     "Base with path-like query: relative path",
+			relative: "g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g",
+		},
+		{
+			name:     "Base with path-like query: relative dot-slash",
+			relative: "./g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g",
+		},
+		{
+			name:     "Base with path-like query: relative path with slash",
+			relative: "g/",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g/",
+		},
+		{
+			name:     "Base with path-like query: path from root",
+			relative: "/g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/g",
+		},
+		{
+			name:     "Base with path-like query: scheme-relative",
+			relative: "//g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://g",
+		},
+		{
+			name:     "Base with path-like query: query only",
+			relative: "?y",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/d;p?y",
+		},
+		{
+			name:     "Base with path-like query: path and query",
+			relative: "g?y",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g?y",
+		},
+		{
+			name:     "Base with path-like query: dot in query",
+			relative: "g?y/./x",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g?y/./x",
+		},
+		{
+			name:     "Base with path-like query: dot-dot in query",
+			relative: "g?y/../x",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g?y/../x",
+		},
+		{
+			name:     "Base with path-like query: path and fragment",
+			relative: "g#s",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g#s",
+		},
+		{
+			name:     "Base with path-like query: dot in fragment",
+			relative: "g#s/./x",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g#s/./x",
+		},
+		{
+			name:     "Base with path-like query: dot-dot in fragment",
+			relative: "g#s/../x",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/g#s/../x",
+		},
+		{
+			name:     "Base with path-like query: dot-slash",
+			relative: "./",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/c/",
+		},
+		{
+			name:     "Base with path-like query: double dot-slash",
+			relative: "../",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/",
+		},
+		{
+			name:     "Base with path-like query: path up one level",
+			relative: "../g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/b/g",
+		},
+		{
+			name:     "Base with path-like query: path up two levels slash",
+			relative: "../../",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/",
+		},
+		{
+			name:     "Base with path-like query: path up two levels",
+			relative: "../../g",
+			base:     "http://a/b/c/d;p?q=1/2",
+			expected: "http://a/g",
+		},
+		{
+			name:     "Base with path-like segment: relative path",
+			relative: "g",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g",
+		},
+		{
+			name:     "Base with path-like segment: relative dot-slash",
+			relative: "./g",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g",
+		},
+		{
+			name:     "Base with path-like segment: relative path with slash",
+			relative: "g/",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g/",
+		},
+		{
+			name:     "Base with path-like segment: path and query",
+			relative: "g?y",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g?y",
+		},
+		{
+			name:     "Base with path-like segment: semicolon path",
+			relative: ";x",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/;x",
+		},
+		{
+			name:     "Base with path-like segment: path with semicolon",
+			relative: "g;x",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g;x",
+		},
+		{
+			name:     "Base with path-like segment: path norm with params",
+			relative: "g;x=1/./y",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/g;x=1/y",
+		},
+		{
+			name:     "Base with path-like segment: path norm up and down",
+			relative: "g;x=1/../y",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/y",
+		},
+		{
+			name:     "Base with path-like segment: dot-slash",
+			relative: "./",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/d;p=1/",
+		},
+		{
+			name:     "Base with path-like segment: double dot-slash",
+			relative: "../",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/",
+		},
+		{
+			name:     "Base with path-like segment: path up one level",
+			relative: "../g",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/c/g",
+		},
+		{
+			name:     "Base with path-like segment: path up two levels slash",
+			relative: "../../",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/",
+		},
+		{
+			name:     "Base with path-like segment: path up two levels",
+			relative: "../../g",
+			base:     "http://a/b/c/d;p=1/2?q",
+			expected: "http://a/b/g"},
+		{
+			name:     "Base with empty authority: new scheme",
+			relative: "g:h",
+			base:     "fred:///s//a/b/c",
+			expected: "g:h"},
+		{
+			name:     "Base with empty authority: relative path",
+			relative: "g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/b/g",
+		},
+		{
+			name:     "Base with empty authority: relative dot-slash",
+			relative: "./g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/b/g",
+		},
+		{
+			name:     "Base with empty authority: relative path with slash",
+			relative: "g/",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/b/g/",
+		},
+		{
+			name:     "Base with empty authority: path from root",
+			relative: "/g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///g",
+		},
+		{
+			name:     "Base with empty authority: scheme-relative",
+			relative: "//g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred://g",
+		},
+		{
+			name:     "Base with empty authority: scheme-relative with path",
+			relative: "//g/x",
+			base:     "fred:///s//a/b/c",
+			expected: "fred://g/x",
+		},
+		{
+			name:     "Base with empty authority: path from root with extra slash",
+			relative: "///g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///g",
+		},
+		{
+			name:     "Base with empty authority: dot-slash",
+			relative: "./",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/b/",
+		},
+		{
+			name:     "Base with empty authority: double dot-slash",
+			relative: "../",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/",
+		},
+		{
+			name:     "Base with empty authority: path up one level",
+			relative: "../g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//a/g",
+		},
+		{
+			name:     "Base with empty authority: path up two levels slash",
+			relative: "../../",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//",
+		},
+		{
+			name:     "Base with empty authority: path up two levels",
+			relative: "../../g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s//g",
+		},
+		{
+			name:     "Base with empty authority: path up three levels",
+			relative: "../../../g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///s/g",
+		},
+		{
+			name:     "Base with empty authority: path up four levels",
+			relative: "../../../../g",
+			base:     "fred:///s//a/b/c",
+			expected: "fred:///g",
+		},
+		{
+			name:     "Absolute with different scheme",
+			relative: "bar:abc",
+			base:     "foo:xyz",
+			expected: "bar:abc"},
+		{
+			name:     "Absolute with different authority",
+			relative: "http://example/x/abc",
+			base:     "http://example2/x/y/z",
+			expected: "http://example/x/abc",
+		},
+		{
+			name:     "Fragment containing slash",
+			relative: "q/r#s/t",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/q/r#s/t",
+		},
+		{
+			name:     "Absolute with ftp scheme",
+			relative: "ftp://ex/x/q/r",
+			base:     "http://ex/x/y",
+			expected: "ftp://ex/x/q/r",
+		},
+		{
+			name:     "Empty relative from file",
+			relative: "",
+			base:     "file:/ex/x/y/pdq",
+			expected: "file:/ex/x/y/pdq",
+		},
+		{
+			name:     "File path relative",
+			relative: "z/",
+			base:     "file:/ex/x/y/",
+			expected: "file:/ex/x/y/z/",
+		},
+		{
+			name:     "File path with authority",
+			relative: "file://meetings.example.com/cal#m1",
+			base:     "file:/devel/WWW/2000/10/swap/test/reluri-1.n3",
+			expected: "file://meetings.example.com/cal#m1",
+		},
+		{
+			name:     "File path with authority from different base",
+			relative: "file://meetings.example.com/cal#m1",
+			base:     "file:/home/connolly/w3ccvs/WWW/2000/10/swap/test/reluri-1.n3",
+			expected: "file://meetings.example.com/cal#m1",
+		},
+		{
+			name:     "Relative file path with fragment",
+			relative: "./#blort",
+			base:     "file:/some/dir/foo",
+			expected: "file:/some/dir/#blort",
+		},
+		{
+			name:     "Relative path to directory with trailing slash",
+			relative: "./",
+			base:     "http://example/x/abc.efg",
+			expected: "http://example/x/",
+		},
+		{
+			name:     "Relative path with colon",
+			relative: "./q:r",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/q:r"},
+		{
+			name:     "Relative path with equals and colon",
+			relative: "./p=q:r",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/p=q:r",
+		},
+		{
+			name:     "Query with slashes",
+			relative: "?pp/rr",
+			base:     "http://ex/x/y?pp/qq",
+			expected: "http://ex/x/y?pp/rr",
+		},
+		{
+			name:     "Relative path from base with query",
+			relative: "y/z",
+			base:     "http://ex/x/y?pp/qq",
+			expected: "http://ex/x/y/z",
+		},
+		{
+			name:     "Relative path from authority and query",
+			relative: "/x/y?q",
+			base:     "http://ex?p",
+			expected: "http://ex/x/y?q",
+		},
+		{
+			name:     "Opaque with relative path",
+			relative: "c/d",
+			base:     "foo:a/b",
+			expected: "foo:a/c/d",
+		},
+		{
+			name:     "Opaque with absolute path",
+			relative: "/c/d",
+			base:     "foo:a/b",
+			expected: "foo:/c/d",
+		},
+		{
+			name:     "Empty relative from opaque with query and fragment",
+			relative: "",
+			base:     "foo:a/b?c#d",
+			expected: "foo:a/b?c",
+		},
+		{
+			name:     "Opaque with base path and new segment",
+			relative: "b/c",
+			base:     "foo:a",
+			expected: "foo:b/c",
+		},
+		{
+			name:     "Opaque path traversal up and down",
+			relative: "../b/c",
+			base:     "foo:/a/y/z",
+			expected: "foo:/a/b/c",
+		},
+		{
+			name:     "Opaque path traversal from root",
+			relative: "../../d",
+			base:     "foo://a//b/c",
+			expected: "foo://a/d",
+		},
+		{
+			name:     "Opaque dot",
+			relative: ".",
+			base:     "foo:a",
+			expected: "foo:",
+		},
+		{
+			name:     "Opaque double dot",
+			relative: "..",
+			base:     "foo:a",
+			expected: "foo:",
+		},
+		{
+			name:     "Path with encoded slash in base",
+			relative: "abc",
+			base:     "http://example/x/y%2Fz",
+			expected: "http://example/x/abc",
+		},
+		{
+			name:     "Path with encoded slash relative",
+			relative: "../../x%2Fabc",
+			base:     "http://example/a/x/y/z",
+			expected: "http://example/a/x%2Fabc",
+		},
+		{
+			name:     "Path with encoded colon relative",
+			relative: "q%3Ar",
+			base:     "http://ex/x/y",
+			expected: "http://ex/x/q%3Ar",
+		},
+		{
+			name:     "Dot-dot in query is not resolved",
+			relative: "http://example/a/b?c/../d",
+			base:     "foo:bar",
+			expected: "http://example/a/b?c/../d",
+		},
+		{
+			name:     "Dot-dot in fragment is not resolved",
+			relative: "http://example/a/b#c/../d",
+			base:     "foo:bar",
+			expected: "http://example/a/b#c/../d",
+		},
+		{
+			name:     "Opaque http relative",
+			relative: "http:this",
+			base:     "http://example.org/base/uri",
+			expected: "http:this",
+		},
+		{
+			name:     "Windows file path resolution",
+			relative: "mini1.xml",
+			base:     "file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/",
+			expected: "file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/mini1.xml",
+		},
+		{
+			name:     "Opaque file with query",
+			relative: "?bar",
+			base:     "file:foo",
+			expected: "file:foo?bar",
+		},
+		{
+			name:     "Opaque file with fragment",
+			relative: "#bar",
+			base:     "file:foo",
+			expected: "file:foo#bar",
+		},
+		{
+			name:     "Opaque file to absolute path",
+			relative: "/lv2.h",
+			base:     "file:foo",
+			expected: "file:/lv2.h"},
+		{
+			name:     "Opaque file to absolute path with empty authority",
+			relative: "///lv2.h",
+			base:     "file:foo",
+			expected: "file:///lv2.h",
+		},
+		{
+			name:     "Opaque file with relative path",
+			relative: "lv2.h",
+			base:     "file:foo",
+			expected: "file:lv2.h",
+		},
+		{
+			name:     "Opaque file with empty path dot",
+			relative: ".",
+			base:     "file:",
+			expected: "file:",
 		},
 	}
 
 	for _, test := range examples {
-		name := fmt.Sprintf("%s_RESOLVE_%s", test.base, test.relative)
-		t.Run(name, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			base, err := ParseIri(test.base)
 			if err != nil {
@@ -591,55 +1183,303 @@ func TestResolveRelativeIRI(t *testing.T) {
 func TestRelativizeIRI(t *testing.T) {
 	t.Parallel()
 	examples := []resolveTest{
-		{"", "http:", "http:"},
-		{"", "http://example.com", "http://example.com"},
-		{"", "http://example.com/foo", "http://example.com/foo"},
-		{"", "http://example.com/foo/bar", "http://example.com/foo/bar"},
-		{"", "http://example.com/foo/bar?bat", "http://example.com/foo/bar?bat"},
-		{"#baz", "http://example.com/foo/bar?bat#baz", "http://example.com/foo/bar?bat#baz"},
-		{"http:", "http:", "https:"},
-		{"//example.com", "http://example.com", "http://example.org"},
-		{"foo", "http://example.com/foo", "http://example.com/bar"},
-		{"?bat", "http://example.com/foo?bat", "http://example.com/foo?foo"},
-		{"#baz", "http://example.com/foo?bat#baz", "http://example.com/foo?bat#foo"},
-		{"//example.com", "http://example.com", "http:"},
-		{"//example.com", "http://example.com", "http://"},
-		{"foo", "http://example.com/foo", "http://example.com/"},
-		{"/foo", "http://example.com/foo", "http://example.com/bar/baz"},
-		{"bar", "http://example.com/foo/bar", "http://example.com/foo/baz"},
-		{"foo/bar", "http://example.com/foo/bar", "http://example.com/foo"},
-		{"?bar", "http://example.com/foo?bar", "http://example.com/foo?baz"},
-		{"//example.com?bar", "http://example.com?bar", "http://example.com/a"},
-		{"?bar", "http://example.com?bar", "http://example.com"},
-		{"//example.com?bar", "http://example.com?bar", "http://example.com/"},
-		{"#bar", "http://example.com/foo#bar", "http://example.com/foo#baz"},
-		{".", "http://example.com/foo/", "http://example.com/foo/bar"},
-		{"/:", "http://example.com/:", "http://example.com/foo"},
-		{"http:", "http:", "http://example.com"},
-		{"http:?foo", "http:?foo", "http://example.com"},
-		{"//example.com", "http://example.com", "http://example.com/foo"},
-		{"//example.com", "http://example.com", "http://example.com?query"},
-		{"foo", "http://example.com/foo", "http://example.com/foo?query"},
-		{"http:?query", "http:?query", "http://example.com?query"},
-		{"http:/path", "http:/path", "http://example.com/foo"},
-		{"//example.com//a", "http://example.com//a", "http://example.com/"},
-		{"ab", "urn:ab", "urn:"},
-		{"urn:isbn:foo", "urn:isbn:foo", "urn:"},
-		{"is/bn:foo", "urn:is/bn:foo", "urn:"},
-		{"e/p", "t:e/e/p", "t:e/s"},
-		{"gp", "htt:/foo/gp", "htt:/foo/"},
-		{"gp", "htt:/gp", "htt:/"},
-		{"x:", "x:", "x://foo"},
-		{"x:", "x:", "x:02"},
-		{"x:", "x:", "x:?foo"},
-		{"", "http://example.com", "http://example.com#foo"},
-		{".", "http://example.com/a/", "http://example.com/a/b"},
-		{".?c", "http://example.com/a/?c", "http://example.com/a/b"},
-		{"t:o//", "t:o//", "t:o/"},
+		{
+			name:     "Identical opaque IRIs",
+			relative: "",
+			base:     "http:",
+			expected: "http:",
+		},
+		{
+			name:     "Identical hierarchical IRIs",
+			relative: "",
+			base:     "http://example.com",
+			expected: "http://example.com",
+		},
+		{
+			name:     "Identical with path",
+			relative: "",
+			base:     "http://example.com/foo",
+			expected: "http://example.com/foo",
+		},
+		{
+			name:     "Identical with longer path",
+			relative: "",
+			base:     "http://example.com/foo/bar",
+			expected: "http://example.com/foo/bar",
+		},
+		{
+			name:     "Identical with query",
+			relative: "",
+			base:     "http://example.com/foo/bar?bat",
+			expected: "http://example.com/foo/bar?bat",
+		},
+		{
+			name:     "Identical with query and fragment",
+			relative: "#baz",
+			base:     "http://example.com/foo/bar?bat#baz",
+			expected: "http://example.com/foo/bar?bat#baz",
+		},
+		{
+			name:     "Different schemes",
+			relative: "http:",
+			base:     "http:",
+			expected: "https:",
+		},
+		{
+			name:     "Different authorities",
+			relative: "//example.com",
+			base:     "http://example.com",
+			expected: "http://example.org",
+		},
+		{
+			name:     "Sibling path segments",
+			relative: "foo",
+			base:     "http://example.com/foo",
+			expected: "http://example.com/bar",
+		},
+		{
+			name:     "Different queries",
+			relative: "?bat",
+			base:     "http://example.com/foo?bat",
+			expected: "http://example.com/foo?foo",
+		},
+		{
+			name:     "Different fragments",
+			relative: "#baz",
+			base:     "http://example.com/foo?bat#baz",
+			expected: "http://example.com/foo?bat#foo",
+		},
+		{
+			name:     "Hierarchical from opaque",
+			relative: "//example.com",
+			base:     "http://example.com",
+			expected: "http:",
+		},
+		{
+			name:     "Hierarchical from authority-only",
+			relative: "//example.com",
+			base:     "http://example.com",
+			expected: "http://",
+		},
+		{
+			name:     "Child path from parent directory",
+			relative: "foo",
+			base:     "http://example.com/foo",
+			expected: "http://example.com/",
+		},
+		{
+			name:     "Path from different tree",
+			relative: "/foo",
+			base:     "http://example.com/foo",
+			expected: "http://example.com/bar/baz",
+		},
+		{
+			name:     "Sibling path",
+			relative: "bar",
+			base:     "http://example.com/foo/bar",
+			expected: "http://example.com/foo/baz",
+		},
+		{
+			name:     "Parent path from child",
+			relative: "foo/bar",
+			base:     "http://example.com/foo/bar",
+			expected: "http://example.com/foo",
+		},
+		{
+			name:     "Sibling query",
+			relative: "?bar",
+			base:     "http://example.com/foo?bar",
+			expected: "http://example.com/foo?baz",
+		},
+		{
+			name:     "Path to query",
+			relative: "//example.com?bar",
+			base:     "http://example.com?bar",
+			expected: "http://example.com/a",
+		},
+		{
+			name:     "No path from query",
+			relative: "?bar",
+			base:     "http://example.com?bar",
+			expected: "http://example.com",
+		},
+		{
+			name:     "Path with slash from query",
+			relative: "//example.com?bar",
+			base:     "http://example.com?bar",
+			expected: "http://example.com/",
+		},
+		{
+			name:     "Sibling fragment",
+			relative: "#bar",
+			base:     "http://example.com/foo#bar",
+			expected: "http://example.com/foo#baz",
+		},
+		{
+			name:     "Path from parent dir to file",
+			relative: ".",
+			base:     "http://example.com/foo/",
+			expected: "http://example.com/foo/bar",
+		},
+		{
+			name:     "Path with colon segment",
+			relative: "/:",
+			base:     "http://example.com/:",
+			expected: "http://example.com/foo",
+		},
+		{
+			name:     "Opaque from hierarchical",
+			relative: "http:",
+			base:     "http:",
+			expected: "http://example.com",
+		},
+		{
+			name:     "Opaque with query from hierarchical",
+			relative: "http:?foo",
+			base:     "http:?foo",
+			expected: "http://example.com",
+		},
+		{
+			name:     "No path from path",
+			relative: "//example.com",
+			base:     "http://example.com",
+			expected: "http://example.com/foo",
+		},
+		{
+			name:     "No path from path with query",
+			relative: "//example.com",
+			base:     "http://example.com",
+			expected: "http://example.com?query",
+		},
+		{
+			name:     "Path from path with query",
+			relative: "foo",
+			base:     "http://example.com/foo",
+			expected: "http://example.com/foo?query",
+		},
+		{
+			name:     "Opaque with query from hierarchical with query",
+			relative: "http:?query",
+			base:     "http:?query",
+			expected: "http://example.com?query",
+		},
+		{
+			name:     "Opaque path from hierarchical path",
+			relative: "http:/path",
+			base:     "http:/path",
+			expected: "http://example.com/foo",
+		},
+		{
+			name:     "Path with empty segment",
+			relative: "//example.com//a",
+			base:     "http://example.com//a",
+			expected: "http://example.com/",
+		},
+		{
+			name:     "URN child",
+			relative: "ab",
+			base:     "urn:ab",
+			expected: "urn:",
+		},
+		{
+			name:     "URN with path",
+			relative: "urn:isbn:foo",
+			base:     "urn:isbn:foo",
+			expected: "urn:",
+		},
+		{
+			name:     "URN with slash",
+			relative: "is/bn:foo",
+			base:     "urn:is/bn:foo",
+			expected: "urn:",
+		},
+		{
+			name:     "Opaque sibling path",
+			relative: "e/p",
+			base:     "t:e/e/p",
+			expected: "t:e/s",
+		},
+		{
+			name:     "Opaque child from parent with slash",
+			relative: "gp",
+			base:     "htt:/foo/gp",
+			expected: "htt:/foo/",
+		},
+		{
+			name:     "Opaque child from parent without slash",
+			relative: "gp",
+			base:     "htt:/gp",
+			expected: "htt:/",
+		},
+		{
+			name:     "Opaque from hierarchical with authority",
+			relative: "x:",
+			base:     "x:",
+			expected: "x://foo",
+		},
+		{
+			name:     "Opaque from opaque with path",
+			relative: "x:",
+			base:     "x:",
+			expected: "x:02",
+		},
+		{
+			name:     "Opaque from opaque with query",
+			relative: "x:",
+			base:     "x:",
+			expected: "x:?foo"},
+		{
+			name:     "Fragment from no fragment",
+			relative: "",
+			base:     "http://example.com",
+			expected: "http://example.com#foo",
+		},
+		{
+			name:     "Same directory relative",
+			relative: ".",
+			base:     "http://example.com/a/",
+			expected: "http://example.com/a/b",
+		},
+		{
+			name:     "Same directory relative with query",
+			relative: ".?c",
+			base:     "http://example.com/a/?c",
+			expected: "http://example.com/a/b",
+		},
+		{
+			name:     "Opaque path with empty authority",
+			relative: "t:o//",
+			base:     "t:o//",
+			expected: "t:o/",
+		},
+		{
+			name:     "Opaque path with colon",
+			relative: "t:a/c:d",
+			base:     "t:a/c:d",
+			expected: "t:a/b",
+		},
+		{
+			name:     "Same dir with query",
+			relative: ".",
+			base:     "http://example.com/a/b/",
+			expected: "http://example.com/a/b/?q=1",
+		},
+		{
+			name:     "Root path from file",
+			relative: "/foo",
+			base:     "http://example.com/foo",
+			expected: "http://example.com",
+		},
+		{
+			name:     "Path traversal up and down",
+			relative: "../c",
+			base:     "http://example.com/a/c",
+			expected: "http://example.com/a/b/",
+		},
 	}
 
 	for _, test := range examples {
-		t.Run(fmt.Sprintf("%s_RELATIVIZE_%s", test.base, test.expected), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			original, err := ParseIri(test.base)
 			if err != nil {
@@ -677,12 +1517,36 @@ func TestRelativizeIRI(t *testing.T) {
 // the target IRI contains dot-segments, which is not allowed.
 func TestRelativizeIRIFails(t *testing.T) {
 	t.Parallel()
-	tests := []struct{ iri, base string }{
-		{"http://example.com/a/../b", "http://example.com/s"},
-		{"http://example.com/a/..", "http://example.com/s"},
-		{"http://example.com/./b", "http://example.com/s"},
-		{"http://example.com/.", "http://example.com/s"},
-		{"urn:.", "urn:"},
+	tests := []struct {
+		name string
+		iri  string
+		base string
+	}{
+		{
+			name: "Hierarchical with dot-dot segment",
+			iri:  "http://example.com/a/../b",
+			base: "http://example.com/s",
+		},
+		{
+			name: "Hierarchical with trailing dot-dot segment",
+			iri:  "http://example.com/a/..",
+			base: "http://example.com/s",
+		},
+		{
+			name: "Hierarchical with dot segment",
+			iri:  "http://example.com/./b",
+			base: "http://example.com/s",
+		},
+		{
+			name: "Hierarchical with trailing dot segment",
+			iri:  "http://example.com/.",
+			base: "http://example.com/s",
+		},
+		{
+			name: "Opaque with trailing dot segment",
+			iri:  "urn:.",
+			base: "urn:",
+		},
 	}
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("%s_AGAINST_%s", test.iri, test.base), func(t *testing.T) {
@@ -805,6 +1669,20 @@ func TestRefJSON(t *testing.T) {
 			t.Errorf("Expected a ParseError, but got %T: %v", err, err)
 		}
 	})
+
+	t.Run("Unmarshal non-string JSON", func(t *testing.T) {
+		t.Parallel()
+		jsonData := []byte(`123`)
+		var ref Ref
+		err := json.Unmarshal(jsonData, &ref)
+		if err == nil {
+			t.Fatal("json.Unmarshal expected to fail for non-string JSON, but did not")
+		}
+		var unmarshalTypeError *json.UnmarshalTypeError
+		if !errors.As(err, &unmarshalTypeError) {
+			t.Errorf("Expected a json.UnmarshalTypeError, but got %T: %v", err, err)
+		}
+	})
 }
 
 // TestIriJSON tests the JSON marshalling and unmarshalling of the Iri type,
@@ -872,194 +1750,436 @@ func TestResolveRelativeIRIUnchecked(t *testing.T) {
 	t.Parallel()
 
 	examples := []resolveTest{
-		{"../foo", "http://host/", "http://host/foo"},
-		{"../foo", "http://host/xyz", "http://host/foo"},
-		{"d/z?x=a", "http://www.example.org/a/b/c/d", "http://www.example.org/a/b/c/d/z?x=a"},
-		{"http://example.com/A", "http://www.example.org/a/b/c/d", "http://example.com/A"},
-		{"", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/"},
-		{".", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/"},
-		{"../../C/D", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/C/D"},
-		{"../../c/d/", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/"},
-		{"../../c/d/X#bar", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/X#bar"},
-		{"../../c/d/e/f/g/", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/e/f/g/"},
-		{"../../c/d/z?x=a", "http://www.example.org/a/b/c/d/", "http://www.example.org/a/b/c/d/z?x=a"},
 		{
-			"http://example.org/#André",
-			"http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test001.rdf",
-			"http://example.org/#André",
+			name:     "Path traversal up from root",
+			relative: "../foo",
+			base:     "http://host/",
+			expected: "http://host/foo",
 		},
 		{
-			"http://example.org/#Andr%C3%A9",
-			"http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test002.rdf",
-			"http://example.org/#Andr%C3%A9",
+			name:     "Path traversal up from file",
+			relative: "../foo",
+			base:     "http://host/xyz",
+			expected: "http://host/foo",
 		},
 		{
-			"#Dürst",
-			"http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf",
-			"http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf#Dürst",
-		},
-		{"#", "base:x", "base:x#"},
-		{
-			"",
-			"file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
-			"file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
-		},
-		{"eh:/a", "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf", "eh:/a"},
-		{"#", "file:///C:/eclipse/workspace/jena2/", "file:///C:/eclipse/workspace/jena2/#"},
-		{"", "file:///C:/eclipse/workspace/jena2/", "file:///C:/eclipse/workspace/jena2/"},
-		{"base", "file:///C:/eclipse/workspace/jena2/", "file:///C:/eclipse/workspace/jena2/base"},
-		{"eh://R", "file:///C:/eclipse/workspace/jena2/", "eh://R"},
-		{"eh:/O", "file:///C:/eclipse/workspace/jena2/", "eh:/O"},
-		{"rdf://test.com#", "file:///C:/eclipse/workspace/jena2/", "rdf://test.com#"},
-		{"z", "file:///C:/eclipse/workspace/jena2/foo.n3", "file:///C:/eclipse/workspace/jena2/z"},
-		{
-			"",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
+			name:     "Relative path with query",
+			relative: "d/z?x=a",
+			base:     "http://www.example.org/a/b/c/d",
+			expected: "http://www.example.org/a/b/c/d/z?x=a",
 		},
 		{
-			"r-base-prefix-3.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-3.ttl",
+			name:     "Absolute IRI",
+			relative: "http://example.com/A",
+			base:     "http://www.example.org/a/b/c/d",
+			expected: "http://example.com/A",
 		},
 		{
-			"r-base-prefix-4.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-4.ttl",
+			name:     "Empty from directory",
+			relative: "",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/",
 		},
 		{
-			"mailto:bert@example.net",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Optional/result-opt-1.ttl",
-			"mailto:bert@example.net",
+			name:     "Dot from directory",
+			relative: ".",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/",
 		},
 		{
-			"Bound/manifest.n3",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Bound/manifest.n3",
+			name:     "Path traversal up and down",
+			relative: "../../C/D",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/C/D",
 		},
 		{
-			"Construct/manifest.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Construct/manifest.ttl",
+			name:     "Path traversal up and down to same dir",
+			relative: "../../c/d/",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/",
 		},
 		{
-			"Dataset/manifest.n3",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			"file:///C:/eclipse/workspace/jena2/testing/ARQ/Dataset/manifest.n3",
+			name:     "Path traversal and new segment with fragment",
+			relative: "../../c/d/X#bar",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/X#bar",
 		},
 		{
-			"mailto:jlow@example.com",
-			"file:///C:/eclipse/workspace/jena2/testing/DAWG-Approved/examples/ex2-4a.n3",
-			"mailto:jlow@example.com",
+			name:     "Path traversal and new longer path",
+			relative: "../../c/d/e/f/g/",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/e/f/g/",
 		},
 		{
-			"ex11.2.3.2_0.rq",
-			"file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/manifest.n3",
-			"file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/ex11.2.3.2_0.rq",
+			name:     "Path traversal and new segment with query",
+			relative: "../../c/d/z?x=a",
+			base:     "http://www.example.org/a/b/c/d/",
+			expected: "http://www.example.org/a/b/c/d/z?x=a",
 		},
 		{
-			"urn:/*not_a_comment*/",
-			"file:///C:/eclipse/workspace/jena2/testing/RDQL-ARQ/result-0-01.n3",
-			"urn:/*not_a_comment*/",
+			name:     "W3C charmod test with unicode",
+			relative: "http://example.org/#André",
+			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test001.rdf",
+			expected: "http://example.org/#André",
 		},
 		{
-			"#y1",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl#y1",
+			name:     "W3C charmod test with percent encoding",
+			relative: "http://example.org/#Andr%C3%A9",
+			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test002.rdf",
+			expected: "http://example.org/#Andr%C3%A9",
 		},
 		{
-			"",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
+			name:     "W3C ID difference test with unicode",
+			relative: "#Dürst",
+			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf",
+			expected: "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf#Dürst",
 		},
 		{
-			"foo#ClassAC",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_07A.owl",
-			"file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/foo#ClassAC",
+			name:     "Empty fragment on opaque URI",
+			relative: "#",
+			base:     "base:x",
+			expected: "base:x#",
 		},
 		{
-			"jason6",
-			"file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/sbug.rdf",
-			"file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/jason6",
+			name:     "Windows path with spaces empty relative",
+			relative: "",
+			base:     "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
+			expected: "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
 		},
 		{
-			"urn:x-propNum100",
-			"file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/subpropertyModel.n3",
-			"urn:x-propNum100",
-		},
-		{"eh:/V", "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/unbroken.n3", "eh:/V"},
-		{"eh:/a", "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/unbroken.n3", "eh:/a"},
-		{
-			"",
-			"file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-			"file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-		},
-		{"http://spoo.net/O", "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf", "http://spoo.net/O"},
-		{"http://spoo.net/S", "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf", "http://spoo.net/S"},
-		{"urn:x-hp:eg/", "file:doc/inference/data/owlDemoSchema.xml", "urn:x-hp:eg/"},
-		{"", "file:testing/abbreviated/relative-uris.rdf", "file:testing/abbreviated/relative-uris.rdf"},
-		{".", "file:testing/abbreviated/relative-uris.rdf", "file:testing/abbreviated/"},
-		{"../../C/D", "file:testing/abbreviated/relative-uris.rdf", "file:C/D"},
-		{"//example.com/A", "file:testing/abbreviated/relative-uris.rdf", "file://example.com/A"},
-		{"/A/B#foo/", "file:testing/abbreviated/relative-uris.rdf", "file:/A/B#foo/"},
-		{"X#bar", "file:testing/abbreviated/relative-uris.rdf", "file:testing/abbreviated/X#bar"},
-		{"e/f/g/", "file:testing/abbreviated/relative-uris.rdf", "file:testing/abbreviated/e/f/g/"},
-		{
-			"http://www.example.org/a/b/c/d/",
-			"file:testing/abbreviated/relative-uris.rdf",
-			"http://www.example.org/a/b/c/d/",
-		},
-		{"z?x=a", "file:testing/abbreviated/relative-uris.rdf", "file:testing/abbreviated/z?x=a"},
-		{"", "file:testing/arp/error-msgs/test06.rdf", "file:testing/arp/error-msgs/test06.rdf"},
-		{"#one", "file:testing/arp/qname-in-ID/bug74_0.rdf", "file:testing/arp/qname-in-ID/bug74_0.rdf#one"},
-		{"#sw:test", "file:testing/arp/qname-in-ID/bug74_0.rdf", "file:testing/arp/qname-in-ID/bug74_0.rdf#sw:test"},
-		{
-			"http://localhost:8080/Repository/QueryAgent/UserOntology/qgen-example-1#",
-			"file:testing/ontology/bugs/test_dk_01.xml",
-			"http://localhost:8080/Repository/QueryAgent/UserOntology/qgen-example-1#",
-		},
-		{"owl#Thing", "file:testing/ontology/bugs/test_dk_01.xml", "file:testing/ontology/bugs/owl#Thing"},
-		{"#__rest3", "file:testing/ontology/bugs/test_oh_01.owl", "file:testing/ontology/bugs/test_oh_01.owl#__rest3"},
-		{
-			"#Union2",
-			"file:testing/ontology/owl/list-syntax/test-ldp.rdf",
-			"file:testing/ontology/owl/list-syntax/test-ldp.rdf#Union2",
-		},
-		{"urn:foo", "file:testing/reasoners/bugs/cardFPTest.owl", "urn:foo"},
-		{
-			"http://decsai.ugr.es/~ontoserver/bacarex2.owl",
-			"file:testing/reasoners/bugs/deleteBug.owl",
-			"http://decsai.ugr.es/~ontoserver/bacarex2.owl",
+			name:     "Absolute from windows path",
+			relative: "eh:/a",
+			base:     "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
+			expected: "eh:/a",
 		},
 		{
-			"#A",
-			"file:testing/reasoners/bugs/equivalentClassTest.owl",
-			"file:testing/reasoners/bugs/equivalentClassTest.owl#A",
+			name:     "Jena empty fragment",
+			relative: "#",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "file:///C:/eclipse/workspace/jena2/#",
 		},
-		{"NC:ispinfo", "http://bar.com/irrelevant", "NC:ispinfo"},
-		{"NC:trickMe", "http://bar.com/irrelevant", "NC:trickMe"},
 		{
-			"chrome://messenger/content/mailPrefsOverlay.xul",
-			"http://bar.com/irrelevant",
-			"chrome://messenger/content/mailPrefsOverlay.xul",
+			name:     "Jena empty relative",
+			relative: "",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "file:///C:/eclipse/workspace/jena2/",
 		},
-		{"domain:aol.com", "http://bar.com/irrelevant", "domain:aol.com"},
-		{"http://foo.com/    ", "http://bar.com/irrelevant", "http://foo.com/    "},
-		{"http://foo.com/   ", "http://bar.com/irrelevant", "http://foo.com/   "},
-		{"http://foo.com/  ", "http://bar.com/irrelevant", "http://foo.com/  "},
-		{"http://foo.com/ ", "http://bar.com/irrelevant", "http://foo.com/ "},
-		{"http://foo.com/\t", "http://bar.com/irrelevant", "http://foo.com/\t"},
-		{"http://foo.com/\n\n", "http://bar.com/irrelevant", "http://foo.com/\n\n"},
-		{"http://foo.com/\r", "http://bar.com/irrelevant", "http://foo.com/\r"},
-		{"http://foo.com/'", "http://bar.com/irrelevant", "http://foo.com/'"},
-		{"http://foo.com/<b>boo", "http://bar.com/irrelevant", "http://foo.com/<b>boo"},
-		{"http://foo.com/\"", "http://bar.com/irrelevant", "http://foo.com/\""},
-		{"http://foo.com/", "http://bar.com/irrelevant", "http://foo.com/"},
-		{"http://foo.com/", "http://bar.com/irrelevant", "http://foo.com/"},
+		{
+			name:     "Jena relative path",
+			relative: "base",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "file:///C:/eclipse/workspace/jena2/base",
+		},
+		{
+			name:     "Jena absolute scheme",
+			relative: "eh://R",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "eh://R",
+		},
+		{
+			name:     "Jena absolute scheme with path",
+			relative: "eh:/O",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "eh:/O",
+		},
+		{
+			name:     "Jena absolute scheme with fragment",
+			relative: "rdf://test.com#",
+			base:     "file:///C:/eclipse/workspace/jena2/",
+			expected: "rdf://test.com#",
+		},
+		{
+			name:     "Jena relative path from file",
+			relative: "z",
+			base:     "file:///C:/eclipse/workspace/jena2/foo.n3",
+			expected: "file:///C:/eclipse/workspace/jena2/z",
+		},
+		{
+			name:     "Jena ARQ Ask empty relative",
+			relative: "",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
+		},
+		{
+			name:     "Jena ARQ Basic relative ttl",
+			relative: "r-base-prefix-3.ttl",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-3.ttl",
+		},
+		{
+			name:     "Jena ARQ Basic relative ttl 2",
+			relative: "r-base-prefix-4.ttl",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-4.ttl",
+		},
+		{
+			name:     "Jena ARQ Optional mailto",
+			relative: "mailto:bert@example.net",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Optional/result-opt-1.ttl",
+			expected: "mailto:bert@example.net",
+		},
+		{
+			name:     "Jena ARQ Bound manifest",
+			relative: "Bound/manifest.n3",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Bound/manifest.n3",
+		},
+		{
+			name:     "Jena ARQ Construct manifest",
+			relative: "Construct/manifest.ttl",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Construct/manifest.ttl",
+		},
+		{
+			name:     "Jena ARQ Dataset manifest",
+			relative: "Dataset/manifest.n3",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Dataset/manifest.n3",
+		},
+		{
+			name:     "Jena DAWG mailto",
+			relative: "mailto:jlow@example.com",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/DAWG-Approved/examples/ex2-4a.n3",
+			expected: "mailto:jlow@example.com",
+		},
+		{
+			name:     "Jena DAWG examples manifest",
+			relative: "ex11.2.3.2_0.rq",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/manifest.n3",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/ex11.2.3.2_0.rq",
+		},
+		{
+			name:     "Jena RDQL URN with comment-like chars",
+			relative: "urn:/*not_a_comment*/",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/RDQL-ARQ/result-0-01.n3",
+			expected: "urn:/*not_a_comment*/",
+		},
+		{
+			name:     "Jena ontology bug test fragment",
+			relative: "#y1",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl#y1",
+		},
+		{
+			name:     "Jena ontology bug test empty",
+			relative: "",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
+		},
+		{
+			name:     "Jena ontology bug test relative with fragment",
+			relative: "foo#ClassAC",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_07A.owl",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/foo#ClassAC",
+		},
+		{
+			name:     "Jena reasoners bug test",
+			relative: "jason6",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/sbug.rdf",
+			expected: "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/jason6",
+		},
+		{
+			name:     "Jena reasoners URN",
+			relative: "urn:x-propNum100",
+			base:     "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/subpropertyModel.n3",
+			expected: "urn:x-propNum100",
+		},
+		{
+			name:     "File with DOS path",
+			relative: "",
+			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
+			expected: "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
+		},
+		{
+			name:     "File with DOS path to absolute",
+			relative: "http://spoo.net/O",
+			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
+			expected: "http://spoo.net/O",
+		},
+		{
+			name:     "File with DOS path to absolute 2",
+			relative: "http://spoo.net/S",
+			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
+			expected: "http://spoo.net/S",
+		},
+		{
+			name:     "File with URN",
+			relative: "urn:x-hp:eg/",
+			base:     "file:doc/inference/data/owlDemoSchema.xml",
+			expected: "urn:x-hp:eg/",
+		},
+		{
+			name:     "File with relative path empty",
+			relative: "",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:testing/abbreviated/relative-uris.rdf",
+		},
+		{
+			name:     "File with relative path dot",
+			relative: ".",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:testing/abbreviated/",
+		},
+		{
+			name:     "File with relative path up and down",
+			relative: "../../C/D",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:C/D",
+		},
+		{
+			name:     "File with relative path to scheme-relative",
+			relative: "//example.com/A",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file://example.com/A",
+		},
+		{
+			name:     "File with relative path to absolute with fragment",
+			relative: "/A/B#foo/",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:/A/B#foo/",
+		},
+		{
+			name:     "File with relative path and fragment",
+			relative: "X#bar",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:testing/abbreviated/X#bar",
+		},
+		{
+			name:     "File with longer relative path",
+			relative: "e/f/g/",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:testing/abbreviated/e/f/g/",
+		},
+		{
+			name:     "File to absolute http",
+			relative: "http://www.example.org/a/b/c/d/",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "http://www.example.org/a/b/c/d/",
+		},
+		{
+			name:     "File with relative path and query",
+			relative: "z?x=a",
+			base:     "file:testing/abbreviated/relative-uris.rdf",
+			expected: "file:testing/abbreviated/z?x=a",
+		},
+		{
+			name:     "QName in ID fragment",
+			relative: "#one",
+			base:     "file:testing/arp/qname-in-ID/bug74_0.rdf",
+			expected: "file:testing/arp/qname-in-ID/bug74_0.rdf#one",
+		},
+		{
+			name:     "QName in ID fragment with colon",
+			relative: "#sw:test",
+			base:     "file:testing/arp/qname-in-ID/bug74_0.rdf",
+			expected: "file:testing/arp/qname-in-ID/bug74_0.rdf#sw:test",
+		},
+		{
+			name:     "Fragment with double hash",
+			relative: "#__rest3",
+			base:     "file:testing/ontology/bugs/test_oh_01.owl",
+			expected: "file:testing/ontology/bugs/test_oh_01.owl#__rest3",
+		},
+		{
+			name:     "Fragment on LDP test file",
+			relative: "#Union2",
+			base:     "file:testing/ontology/owl/list-syntax/test-ldp.rdf",
+			expected: "file:testing/ontology/owl/list-syntax/test-ldp.rdf#Union2",
+		},
+		{
+			name:     "URN from OWL file",
+			relative: "urn:foo",
+			base:     "file:testing/reasoners/bugs/cardFPTest.owl",
+			expected: "urn:foo",
+		},
+		{
+			name:     "Absolute from OWL file",
+			relative: "http://decsai.ugr.es/~ontoserver/bacarex2.owl",
+			base:     "file:testing/reasoners/bugs/deleteBug.owl",
+			expected: "http://decsai.ugr.es/~ontoserver/bacarex2.owl",
+		},
+		{
+			name:     "Fragment on OWL file",
+			relative: "#A",
+			base:     "file:testing/reasoners/bugs/equivalentClassTest.owl",
+			expected: "file:testing/reasoners/bugs/equivalentClassTest.owl#A",
+		},
+		{
+			name:     "Opaque with colon",
+			relative: "NC:ispinfo",
+			base:     "http://bar.com/irrelevant",
+			expected: "NC:ispinfo",
+		},
+		{
+			name:     "Opaque with colon 2",
+			relative: "NC:trickMe",
+			base:     "http://bar.com/irrelevant",
+			expected: "NC:trickMe",
+		},
+		{
+			name:     "Chrome protocol",
+			relative: "chrome://messenger/content/mailPrefsOverlay.xul",
+			base:     "http://bar.com/irrelevant",
+			expected: "chrome://messenger/content/mailPrefsOverlay.xul",
+		},
+		{
+			name:     "Domain protocol",
+			relative: "domain:aol.com",
+			base:     "http://bar.com/irrelevant",
+			expected: "domain:aol.com",
+		},
+		{
+			name:     "IRI with trailing spaces",
+			relative: "http://foo.com/    ",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/    ",
+		},
+		{
+			name:     "IRI with trailing tab",
+			relative: "http://foo.com/\t",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/\t",
+		},
+		{
+			name:     "IRI with trailing newline",
+			relative: "http://foo.com/\n\n",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/\n\n",
+		},
+		{
+			name:     "IRI with trailing CR",
+			relative: "http://foo.com/\r",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/\r",
+		},
+		{
+			name:     "IRI with single quote",
+			relative: "http://foo.com/'",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/'",
+		},
+		{
+			name:     "IRI with tag char",
+			relative: "http://foo.com/<b>boo",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/<b>boo",
+		},
+		{
+			name:     "IRI with double quote",
+			relative: "http://foo.com/\"",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/\"",
+		},
+		{
+			name:     "Simple absolute IRI",
+			relative: "http://foo.com/",
+			base:     "http://bar.com/irrelevant",
+			expected: "http://foo.com/",
+		},
 	}
 
 	for _, test := range examples {
-		t.Run(fmt.Sprintf("%s_AGAINST_%s", test.relative, test.base), func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			base := ParseIriUnchecked(test.base)
 			result := base.ResolveUnchecked(test.relative)
@@ -1135,4 +2255,146 @@ func FuzzRelativizeRoundtrip(f *testing.F) {
 				base.String(), abs.String(), rel.String(), resolved.String())
 		}
 	})
+}
+
+// TestParseIriFails ensures that ParseIri returns an error for syntactically
+// invalid IRI strings.
+func TestParseIriFails(t *testing.T) {
+	t.Parallel()
+	// These inputs are invalid because they are not valid IRI-references.
+	invalidIRIs := []string{
+		":",
+		"http://[/",
+		"http://a b.com/",
+	}
+
+	for _, s := range invalidIRIs {
+		t.Run(s, func(t *testing.T) {
+			t.Parallel()
+			_, err := ParseIri(s)
+			if err == nil {
+				t.Errorf("ParseIri(%q) was expected to fail, but it did not", s)
+			}
+		})
+	}
+}
+
+// TestParseError_Unwrap verifies that the Unwrap method of a ParseError
+// correctly returns the underlying wrapped error, making it compatible
+// with functions like errors.Is.
+func TestParseError_Unwrap(t *testing.T) {
+	t.Parallel()
+
+	underlyingErr := errors.New("this is the specific cause")
+	wrappedErr := fmt.Errorf("some context: %w", underlyingErr)
+	parseErr := newParseError(wrappedErr)
+
+	if !errors.Is(parseErr, underlyingErr) {
+		t.Errorf("errors.Is failed: expected the ParseError to wrap the underlying error, but it did not")
+	}
+
+	unwrapped := errors.Unwrap(parseErr)
+	if !errors.Is(unwrapped, underlyingErr) {
+		t.Errorf(
+			"errors.Unwrap() returned <%v>, which is not the expected underlying error <%v>",
+			unwrapped,
+			underlyingErr,
+		)
+	}
+}
+
+// TestParseRefUnchecked_Panic verifies that ParseRefUnchecked panics
+// when the underlying parser unexpectedly returns an error, even in unchecked mode.
+// This is a test for the defensive panic logic.
+func TestParseRefUnchecked_Panic(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("ParseRefUnchecked was expected to panic on invalid input, but it did not")
+		}
+	}()
+
+	_ = ParseRefUnchecked("http://example.com/%")
+}
+
+// TestRef_RelativeScheme verifies that calling Scheme() on a relative reference
+// correctly indicates that no scheme is present.
+func TestRef_RelativeScheme(t *testing.T) {
+	t.Parallel()
+
+	ref, err := ParseRef("/path/only?q=1")
+	if err != nil {
+		t.Fatalf("ParseRef() failed unexpectedly for a valid relative ref: %v", err)
+	}
+
+	scheme, ok := ref.Scheme()
+
+	if ok {
+		t.Error("Scheme() returned ok=true for a relative reference, want false")
+	}
+	if scheme != "" {
+		t.Errorf("Scheme() returned scheme=%q for a relative reference, want empty string", scheme)
+	}
+}
+
+// TestParseIriUnchecked_Panic verifies that ParseIriUnchecked panics when called
+// with a relative IRI, as is its documented behavior.
+func TestParseIriUnchecked_Panic(t *testing.T) {
+	t.Parallel()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("ParseIriUnchecked was expected to panic on a relative IRI, but it did not")
+		}
+	}()
+
+	_ = ParseIriUnchecked("//a/b/c")
+}
+
+// TestRelativizeWithFragmentAndQuery tests the Relativize method for cases where a
+// relative path must be constructed and the target IRI contains a query and/or a
+// fragment.
+func TestRelativizeWithFragmentAndQuery(t *testing.T) {
+	t.Parallel()
+	base, _ := ParseIri("http://example.com/foo/bar")
+	target, _ := ParseIri("http://example.com/foo/baz#section")
+
+	rel, err := base.Relativize(target)
+	if err != nil {
+		t.Fatalf("Relativize failed: %v", err)
+	}
+
+	expected := "baz#section"
+	if rel.String() != expected {
+		t.Errorf("Relativizing %q against %q gives %q, want %q",
+			target.String(), base.String(), rel.String(), expected)
+	}
+
+	targetWithQuery, _ := ParseIri("http://example.com/foo/baz?q=1#section")
+	relWithQuery, err := base.Relativize(targetWithQuery)
+	if err != nil {
+		t.Fatalf("Relativize with query failed: %v", err)
+	}
+	expectedWithQuery := "baz?q=1#section"
+	if relWithQuery.String() != expectedWithQuery {
+		t.Errorf("Relativizing %q against %q gives %q, want %q",
+			targetWithQuery.String(), base.String(), relWithQuery.String(), expectedWithQuery)
+	}
+}
+
+// TestResolveUncheckedTo_Panic verifies that ResolveUncheckedTo panics when the
+// underlying parser returns an error, even in unchecked mode. This is a test
+// for the defensive panic logic.
+func TestResolveUncheckedTo_Panic(t *testing.T) {
+	t.Parallel()
+	base := ParseIriUnchecked("http://a/b")
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("ResolveUncheckedTo was expected to panic on invalid input, but it did not")
+		}
+	}()
+
+	var builder strings.Builder
+	invalidRelativeIRI := "http://example.com/%"
+	base.ResolveUncheckedTo(invalidRelativeIRI, &builder)
 }

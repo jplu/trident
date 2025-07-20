@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUTHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
@@ -21,7 +21,6 @@ limitations under the License.
 package parser //nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -45,31 +44,32 @@ func TestRunAbsolute(t *testing.T) {
 	testCases := []struct {
 		name              string
 		iri               string
-		useVoidBuffer     bool // If true, use VoidOutputBuffer to test validation-only mode.
+		useVoidBuffer     bool
+		unchecked         bool
 		expectedPositions Positions
 	}{
 		{
-			name: "simple http",
+			name: "simple http with all components",
 			iri:  "http://example.com/foo?q=1#bar",
 			expectedPositions: Positions{
-				SchemeEnd:    5,  // "http:"
-				AuthorityEnd: 18, // "//example.com"
-				PathEnd:      22, // "/foo"
-				QueryEnd:     26, // "?q=1"
+				SchemeEnd:    5,
+				AuthorityEnd: 18,
+				PathEnd:      22,
+				QueryEnd:     26,
 			},
 		},
 		{
-			name: "simple mailto",
+			name: "mailto scheme with path",
 			iri:  "mailto:John.Doe@example.com",
 			expectedPositions: Positions{
-				SchemeEnd:    7,  // "mailto:"
-				AuthorityEnd: 7,  // (empty)
-				PathEnd:      27, // "John.Doe@example.com"
-				QueryEnd:     27, // (empty)
+				SchemeEnd:    7,
+				AuthorityEnd: 7,
+				PathEnd:      27,
+				QueryEnd:     27,
 			},
 		},
 		{
-			name: "urn",
+			name: "urn scheme with path",
 			iri:  "urn:oasis:names:specification:docbook:dtd:xml:4.1.2",
 			expectedPositions: Positions{
 				SchemeEnd:    4,
@@ -79,7 +79,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "ipv6 host with port",
+			name: "ipv6 host with port and path",
 			iri:  "ldap://[2001:db8::7]:80/c=GB?one",
 			expectedPositions: Positions{
 				SchemeEnd:    5,
@@ -89,7 +89,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "ipv4 host with empty port and path",
+			name: "ipv4 host with empty port and no path",
 			iri:  "telnet://192.0.2.16:",
 			expectedPositions: Positions{
 				SchemeEnd:    7,
@@ -99,7 +99,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "valid IRI with authority (formerly 'path starting with slashes')",
+			name: "scheme with authority but no path",
 			iri:  "foo://bar",
 			expectedPositions: Positions{
 				SchemeEnd:    4,
@@ -109,7 +109,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name:          "void buffer validation",
+			name:          "void buffer validation only",
 			iri:           "http://example.com/",
 			useVoidBuffer: true,
 			expectedPositions: Positions{
@@ -120,7 +120,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "network-path reference",
+			name: "network-path reference (no scheme)",
 			iri:  "//example.com/path",
 			expectedPositions: Positions{
 				SchemeEnd:    0,
@@ -130,7 +130,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "path-absolute reference",
+			name: "path-absolute reference (no scheme)",
 			iri:  "/path/to/resource",
 			expectedPositions: Positions{
 				SchemeEnd:    0,
@@ -140,7 +140,7 @@ func TestRunAbsolute(t *testing.T) {
 			},
 		},
 		{
-			name: "ambiguous path parsed as scheme (formerly 'path-rootless reference')",
+			name: "path starting with scheme-like segment",
 			iri:  "path:to/resource",
 			expectedPositions: Positions{
 				SchemeEnd:    5,
@@ -159,6 +159,128 @@ func TestRunAbsolute(t *testing.T) {
 				QueryEnd:     0,
 			},
 		},
+		{
+			name:      "unchecked mode with leading colon (parsed as empty scheme)",
+			iri:       ":foo",
+			unchecked: true,
+			expectedPositions: Positions{
+				SchemeEnd:    1,
+				AuthorityEnd: 1,
+				PathEnd:      4,
+				QueryEnd:     4,
+			},
+		},
+		{
+			name: "ipv6 host without port followed by EOF",
+			iri:  "http://[::1]",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 12,
+				PathEnd:      12,
+				QueryEnd:     12,
+			},
+		},
+		{
+			name: "ipv6 host followed by path",
+			iri:  "http://[::1]/path",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 12,
+				PathEnd:      17,
+				QueryEnd:     17,
+			},
+		},
+		{
+			name: "ipv6 host followed by query",
+			iri:  "http://[::1]?q",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 12,
+				PathEnd:      12,
+				QueryEnd:     14,
+			},
+		},
+		{
+			name: "ipv6 host followed by fragment",
+			iri:  "http://[::1]#f",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 12,
+				PathEnd:      12,
+				QueryEnd:     12,
+			},
+		},
+		{
+			name: "regular host followed by query",
+			iri:  "http://example.com?q",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 18,
+				PathEnd:      18,
+				QueryEnd:     20,
+			},
+		},
+		{
+			name: "regular host followed by fragment",
+			iri:  "http://example.com#f",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 18,
+				PathEnd:      18,
+				QueryEnd:     18,
+			},
+		},
+		{
+			name: "ipvfuture host followed by path",
+			iri:  "http://[v1.addr]/path",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 16,
+				PathEnd:      21,
+				QueryEnd:     21,
+			},
+		},
+		{
+			name: "path with percent encoding",
+			iri:  "http://example.com/foo%20bar",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 18,
+				PathEnd:      28,
+				QueryEnd:     28,
+			},
+		},
+		{
+			name: "ipvfuture host with valid characters",
+			iri:  "http://[v1.ab-cd:ef]/",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 20,
+				PathEnd:      21,
+				QueryEnd:     21,
+			},
+		},
+		{
+			name: "iunreserved unicode char in path",
+			iri:  "http://a/\U000E1234",
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 8,
+				PathEnd:      13,
+				QueryEnd:     13,
+			},
+		},
+		{
+			name:      "unchecked path after ipv6 literal without slash",
+			iri:       "http://[::1]path",
+			unchecked: true,
+			expectedPositions: Positions{
+				SchemeEnd:    5,
+				AuthorityEnd: 12,
+				PathEnd:      0,
+				QueryEnd:     0,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -173,12 +295,12 @@ func TestRunAbsolute(t *testing.T) {
 				output = &StringOutputBuffer{Builder: builder}
 			}
 
-			positions, err := Run(tc.iri, nil, false, output)
+			positions, err := Run(tc.iri, nil, tc.unchecked, output)
 
 			if err != nil {
 				t.Fatalf("Did not expect an error, but got: %v", err)
 			}
-			if !tc.useVoidBuffer {
+			if !tc.useVoidBuffer && !tc.unchecked {
 				if builder.String() != tc.iri {
 					t.Errorf("Output string mismatch\n got: %q\nwant: %q", builder.String(), tc.iri)
 				}
@@ -191,96 +313,343 @@ func TestRunAbsolute(t *testing.T) {
 // TestRunRelativeResolution tests the IRI reference resolution algorithm. It uses a
 // set of base IRIs and relative references, many of which are drawn from the examples
 // in RFC 3986, to ensure that the parser correctly resolves them to the expected absolute IRI.
+// It also includes cases for testing the `unchecked` mode during resolution.
 func TestRunRelativeResolution(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
+		name           string
 		baseIRI        string
 		relativeIRI    string
+		unchecked      bool
 		expectedResult string
 	}{
 		// Normal examples from RFC 3986, Section 5.4.1
-		{"http://a/b/c/d;p?q", "g:h", "g:h"},
-		{"http://a/b/c/d;p?q", "g", "http://a/b/c/g"},
-		{"http://a/b/c/d;p?q", "./g", "http://a/b/c/g"},
-		{"http://a/b/c/d;p?q", "g/", "http://a/b/c/g/"},
-		{"http://a/b/c/d;p?q", "/g", "http://a/g"},
-		{"http://a/b/c/d;p?q", "//g", "http://g"},
-		{"http://a/b/c/d;p?q", "?y", "http://a/b/c/d;p?y"},
-		{"http://a/b/c/d;p?q", "g?y", "http://a/b/c/g?y"},
-		{"http://a/b/c/d;p?q", "#s", "http://a/b/c/d;p?q#s"},
-		{"http://a/b/c/d;p?q", "g#s", "http://a/b/c/g#s"},
-		{"http://a/b/c/d;p?q", "g?y#s", "http://a/b/c/g?y#s"},
-		{"http://a/b/c/d;p?q", ";x", "http://a/b/c/;x"},
-		{"http://a/b/c/d;p?q", "g;x", "http://a/b/c/g;x"},
-		{"http://a/b/c/d;p?q", "g;x?y#s", "http://a/b/c/g;x?y#s"},
-		{"http://a/b/c/d;p?q", "", "http://a/b/c/d;p?q"},
-		{"http://a/b/c/d;p?q", ".", "http://a/b/c/"},
-		{"http://a/b/c/d;p?q", "./", "http://a/b/c/"},
-		{"http://a/b/c/d;p?q", "..", "http://a/b/"},
-		{"http://a/b/c/d;p?q", "../", "http://a/b/"},
-		{"http://a/b/c/d;p?q", "../g", "http://a/b/g"},
-		{"http://a/b/c/d;p?q", "../..", "http://a/"},
-		{"http://a/b/c/d;p?q", "../../", "http://a/"},
-		{"http://a/b/c/d;p?q", "../../g", "http://a/g"},
+		{
+			name:           "RFC3986 Normal: scheme",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g:h",
+			expectedResult: "g:h",
+		},
+		{
+			name:           "RFC3986 Normal: simple path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g",
+			expectedResult: "http://a/b/c/g",
+		},
+		{
+			name:           "RFC3986 Normal: dot segment",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "./g",
+			expectedResult: "http://a/b/c/g",
+		},
+		{
+			name:           "RFC3986 Normal: path with slash",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g/",
+			expectedResult: "http://a/b/c/g/",
+		},
+		{
+			name:           "RFC3986 Normal: absolute path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "/g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Normal: network path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "//g",
+			expectedResult: "http://g",
+		},
+		{
+			name:           "RFC3986 Normal: query only",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "?y",
+			expectedResult: "http://a/b/c/d;p?y",
+		},
+		{
+			name:           "RFC3986 Normal: path and query",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g?y",
+			expectedResult: "http://a/b/c/g?y",
+		},
+		{
+			name:           "RFC3986 Normal: fragment only",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "#s",
+			expectedResult: "http://a/b/c/d;p?q#s",
+		},
+		{
+			name:           "RFC3986 Normal: path and fragment",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g#s",
+			expectedResult: "http://a/b/c/g#s",
+		},
+		{
+			name:           "RFC3986 Normal: path, query, fragment",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g?y#s",
+			expectedResult: "http://a/b/c/g?y#s",
+		},
+		{
+			name:           "RFC3986 Normal: semicolon path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    ";x",
+			expectedResult: "http://a/b/c/;x",
+		},
+		{
+			name:           "RFC3986 Normal: path and semicolon",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g;x",
+			expectedResult: "http://a/b/c/g;x",
+		},
+		{
+			name:           "RFC3986 Normal: full with semicolon",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g;x?y#s",
+			expectedResult: "http://a/b/c/g;x?y#s",
+		},
+		{
+			name:           "RFC3986 Normal: empty reference",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "",
+			expectedResult: "http://a/b/c/d;p?q",
+		},
+		{
+			name:           "RFC3986 Normal: single dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    ".",
+			expectedResult: "http://a/b/c/",
+		},
+		{
+			name:           "RFC3986 Normal: single dot slash",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "./",
+			expectedResult: "http://a/b/c/",
+		},
+		{
+			name:           "RFC3986 Normal: double dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "..",
+			expectedResult: "http://a/b/",
+		},
+		{
+			name:           "RFC3986 Normal: double dot slash",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../",
+			expectedResult: "http://a/b/",
+		},
+		{
+			name:           "RFC3986 Normal: double dot path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../g",
+			expectedResult: "http://a/b/g",
+		},
+		{
+			name:           "RFC3986 Normal: two double dots",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../..",
+			expectedResult: "http://a/",
+		},
+		{
+			name:           "RFC3986 Normal: two double dots slash",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../../",
+			expectedResult: "http://a/",
+		},
+		{
+			name:           "RFC3986 Normal: two double dots path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../../g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Normal: scheme with network path",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g://h",
+			expectedResult: "g://h",
+		},
 
 		// Abnormal examples from RFC 3986, Section 5.4.2
-		{"http://a/b/c/d;p?q", "../../../g", "http://a/g"},
-		{"http://a/b/c/d;p?q", "../../../../g", "http://a/g"},
-		{"http://a/b/c/d;p?q", "/./g", "http://a/g"},
-		{"http://a/b/c/d;p?q", "/../g", "http://a/g"},
-		{"http://a/b/c/d;p?q", "g.", "http://a/b/c/g."},
-		{"http://a/b/c/d;p?q", ".g", "http://a/b/c/.g"},
-		{"http://a/b/c/d;p?q", "g..", "http://a/b/c/g.."},
-		{"http://a/b/c/d;p?q", "..g", "http://a/b/c/..g"},
-		{"http://a/b/c/d;p?q", "./../g", "http://a/b/g"},
-		{"http://a/b/c/d;p?q", "./g/.", "http://a/b/c/g/"},
-		{"http://a/b/c/d;p?q", "g/./h", "http://a/b/c/g/h"},
-		{"http://a/b/c/d;p?q", "g/../h", "http://a/b/c/h"},
-		{"http://a/b/c/d;p?q", "g;x=1/./y", "http://a/b/c/g;x=1/y"},
-		{"http://a/b/c/d;p?q", "g;x=1/../y", "http://a/b/c/y"},
-		{"http://a/b/c/d;p?q", "http:g", "http:g"}, // scheme is present in reference
+		{
+			name:           "RFC3986 Abnormal: three double dots",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../../../g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Abnormal: four double dots",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "../../../../g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Abnormal: absolute dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "/./g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Abnormal: absolute double dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "/../g",
+			expectedResult: "http://a/g",
+		},
+		{
+			name:           "RFC3986 Abnormal: path with trailing dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g.",
+			expectedResult: "http://a/b/c/g.",
+		},
+		{
+			name:           "RFC3986 Abnormal: path with leading dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    ".g",
+			expectedResult: "http://a/b/c/.g",
+		},
+		{
+			name:           "RFC3986 Abnormal: path with trailing double dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g..",
+			expectedResult: "http://a/b/c/g..",
+		},
+		{
+			name:           "RFC3986 Abnormal: path with leading double dot",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "..g",
+			expectedResult: "http://a/b/c/..g",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "./../g",
+			expectedResult: "http://a/b/g",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots 2",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "./g/.",
+			expectedResult: "http://a/b/c/g/",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots 3",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g/./h",
+			expectedResult: "http://a/b/c/g/h",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots 4",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g/../h",
+			expectedResult: "http://a/b/c/h",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots with semicolon",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g;x=1/./y",
+			expectedResult: "http://a/b/c/g;x=1/y",
+		},
+		{
+			name:           "RFC3986 Abnormal: nested dots with semicolon 2",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "g;x=1/../y",
+			expectedResult: "http://a/b/c/y",
+		},
+		{
+			name:           "RFC3986 Abnormal: scheme present in reference",
+			baseIRI:        "http://a/b/c/d;p?q",
+			relativeIRI:    "http:g",
+			expectedResult: "http:g",
+		},
 
 		// Custom tests for edge cases
-		{"file:foo", "?bar", "file:foo?bar"},
-		{"file:foo", "#bar", "file:foo#bar"},
-		{"file:foo", "/lv2.h", "file:/lv2.h"},
-		{"file:foo", "///lv2.h", "file:///lv2.h"}, // has authority
-		{"file:foo", "lv2.h", "file:lv2.h"},
-		{"http://example.com", "s", "http://example.com/s"}, // Base without path
+		{
+			name:           "Custom: file scheme with query",
+			baseIRI:        "file:foo",
+			relativeIRI:    "?bar",
+			expectedResult: "file:foo?bar",
+		},
+		{
+			name:           "Custom: file scheme with fragment",
+			baseIRI:        "file:foo",
+			relativeIRI:    "#bar",
+			expectedResult: "file:foo#bar",
+		},
+		{
+			name:           "Custom: file scheme with absolute path",
+			baseIRI:        "file:foo",
+			relativeIRI:    "/lv2.h",
+			expectedResult: "file:/lv2.h",
+		},
+		{
+			name:           "Custom: file scheme with authority",
+			baseIRI:        "file:foo",
+			relativeIRI:    "///lv2.h",
+			expectedResult: "file:///lv2.h",
+		},
+		{
+			name:           "Custom: file scheme with relative path",
+			baseIRI:        "file:foo",
+			relativeIRI:    "lv2.h",
+			expectedResult: "file:lv2.h",
+		},
+		{
+			name:           "Custom: base without path",
+			baseIRI:        "http://example.com",
+			relativeIRI:    "s",
+			expectedResult: "http://example.com/s",
+		},
 
 		// Path normalization with multiple slashes
-		{"fred:///s//a/b/c", "../g", "fred:///s//a/g"},
-		{"fred:///s//a/b/c", "../../g", "fred:///s//g"},
-		{"fred:///s//a/b/c", "../../../g", "fred:///s/g"},
+		{
+			name:           "Custom: path norm with multiple slashes 1",
+			baseIRI:        "fred:///s//a/b/c",
+			relativeIRI:    "../g",
+			expectedResult: "fred:///s//a/g",
+		},
+		{
+			name:           "Custom: path norm with multiple slashes 2",
+			baseIRI:        "fred:///s//a/b/c",
+			relativeIRI:    "../../g",
+			expectedResult: "fred:///s//g",
+		},
+		{
+			name:           "Custom: path norm with multiple slashes 3",
+			baseIRI:        "fred:///s//a/b/c",
+			relativeIRI:    "../../../g",
+			expectedResult: "fred:///s/g",
+		},
+
+		// Test case to cover unchecked resolution path
+		{
+			name:           "Resolution with unchecked mode",
+			baseIRI:        "http://example.com/a/b",
+			relativeIRI:    "../c",
+			unchecked:      true,
+			expectedResult: "http://example.com/c",
+		},
 	}
 
 	for _, tc := range testCases {
-		name := fmt.Sprintf("%s_RESOLVE_%s", tc.baseIRI, tc.relativeIRI)
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			// First, parse the base IRI to get its positions.
-			basePos, err := Run(tc.baseIRI, nil, false, &VoidOutputBuffer{})
+			basePos, err := Run(tc.baseIRI, nil, true, &VoidOutputBuffer{})
 			if err != nil {
 				t.Fatalf("Setup failed: could not parse base IRI %q: %v", tc.baseIRI, err)
 			}
 			base := &Base{IRI: tc.baseIRI, Pos: basePos}
 
-			// Now, run the resolution.
 			builder := &strings.Builder{}
 			output := &StringOutputBuffer{Builder: builder}
-			resolvedPos, err := Run(tc.relativeIRI, base, false, output)
+			resolvedPos, err := Run(tc.relativeIRI, base, tc.unchecked, output)
 			if err != nil {
-				t.Fatalf("Resolution failed for relative IRI %q: %v", tc.relativeIRI, err)
+				t.Fatalf("Resolution failed for relative IRI %q with base %q: %v", tc.relativeIRI, tc.baseIRI, err)
 			}
 
-			// Check if the resolved string is correct.
 			if builder.String() != tc.expectedResult {
 				t.Errorf("Resolved IRI string mismatch\n got: %q\nwant: %q", builder.String(), tc.expectedResult)
 			}
 
-			// As a final check, parse the expected result and compare its positions
-			// with the positions from the resolved IRI.
 			expectedPos, err := Run(tc.expectedResult, nil, false, &VoidOutputBuffer{})
 			if err != nil {
 				t.Fatalf("Post-check failed: could not parse expected result %q: %v", tc.expectedResult, err)
@@ -299,25 +668,135 @@ func TestRunInvalid(t *testing.T) {
 	testCases := []struct {
 		name        string
 		iri         string
-		base        *string // Optional base for relative reference tests.
+		base        *string
 		expectedErr string
 	}{
-		{"no scheme", ":no-scheme", nil, "No scheme found in an absolute IRI"},
-		{"invalid char in scheme", "+foo:bar", nil, "Invalid IRI character"},
-		{"invalid char in userinfo", "s://u@ser@host", nil, "Invalid IRI character"},
-		{"invalid port char", "s://h:port/", nil, "Invalid port character"},
-		{"invalid percent encoding 1", "%", nil, "Invalid IRI percent encoding"},
-		{"invalid percent encoding 2", "%1", nil, "Invalid IRI percent encoding"},
-		{"invalid percent encoding 3", "%GG", nil, "Invalid IRI percent encoding"},
-		{"unterminated ipv6", "http://[::1", nil, "unterminated IPv6 literal"},
-		{"invalid char after ipv6", "http://[::1]a", nil, "Invalid character after IP literal"},
-		{"invalid ipvfuture version", "http://[vG.addr]", nil, "Invalid IPvFuture version char"},
-		{"invalid ipvfuture separator", "http://[v1addr]", nil, "Invalid IPvFuture format: no dot separator"},
-		{"invalid ipvfuture empty addr", "http://[v1.]", nil, "Invalid IPvFuture: empty address part"},
-		{"space in host", "http://exa mple.com", nil, "Invalid IRI character"},
-		{"invalid path char", "a/b/c^d", nil, "Invalid IRI character"},
-		{"invalid query char", "?a=\uFDEF", nil, "Invalid IRI character"},
-		{"invalid fragment char", "#a\nb", nil, "Invalid IRI character"},
+		{
+			name:        "no scheme",
+			iri:         ":no-scheme",
+			base:        nil,
+			expectedErr: "No scheme found in an absolute IRI",
+		},
+		{
+			name:        "invalid char in scheme",
+			iri:         "+foo:bar",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid char in userinfo",
+			iri:         "s://u@ser@host",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid port character",
+			iri:         "s://h:port/",
+			base:        nil,
+			expectedErr: "Invalid port character",
+		},
+		{
+			name:        "invalid percent encoding (incomplete)",
+			iri:         "%1",
+			base:        nil,
+			expectedErr: "Invalid IRI percent encoding",
+		},
+		{
+			name:        "invalid percent encoding (non-hex)",
+			iri:         "%GG",
+			base:        nil,
+			expectedErr: "Invalid IRI percent encoding",
+		},
+		{
+			name:        "unterminated ipv6 literal",
+			iri:         "http://[::1",
+			base:        nil,
+			expectedErr: "unterminated IPv6 literal",
+		},
+		{
+			name:        "invalid ip in literal (non-hex)",
+			iri:         "http://[::G]",
+			base:        nil,
+			expectedErr: "Invalid host IP",
+		},
+		{
+			name:        "invalid char after ipv6",
+			iri:         "http://[::1]a",
+			base:        nil,
+			expectedErr: "Invalid character after IP literal",
+		},
+		{
+			name:        "invalid ipvfuture version char",
+			iri:         "http://[vG.addr]",
+			base:        nil,
+			expectedErr: "Invalid IPvFuture version char",
+		},
+		{
+			name:        "invalid ipvfuture no dot separator",
+			iri:         "http://[v1addr]",
+			base:        nil,
+			expectedErr: "Invalid IPvFuture format: no dot separator",
+		},
+		{
+			name:        "invalid ipvfuture missing version",
+			iri:         "http://[v.addr]",
+			base:        nil,
+			expectedErr: "Invalid IPvFuture: missing version",
+		},
+		{
+			name:        "invalid ipvfuture empty address part",
+			iri:         "http://[v1.]",
+			base:        nil,
+			expectedErr: "Invalid IPvFuture: empty address part",
+		},
+		{
+			name:        "invalid ipvfuture address char",
+			iri:         "http://[v1.addr^]",
+			base:        nil,
+			expectedErr: "Invalid IPvFuture address char",
+		},
+		{
+			name:        "space in host",
+			iri:         "http://exa mple.com",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid path char",
+			iri:         "a/b/c^d",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid query char (in private use area)",
+			iri:         "?a=\uFDEF",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid fragment char (newline)",
+			iri:         "#a\nb",
+			base:        nil,
+			expectedErr: "Invalid IRI character",
+		},
+		{
+			name:        "invalid character  in userinfo",
+			iri:         "s://user^info@host",
+			base:        nil,
+			expectedErr: "Invalid IRI character '^'",
+		},
+		{
+			name:        "invalid relative ref with base",
+			iri:         "%GG",
+			base:        func() *string { s := "http://example.com/"; return &s }(),
+			expectedErr: "Invalid IRI percent encoding",
+		},
+		{
+			name:        "path starts with slashes after resolution",
+			iri:         "../..//c",
+			base:        func() *string { s := "foo:a/b"; return &s }(),
+			expectedErr: "An IRI path is not allowed to start with // if there is no authority",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -325,7 +804,6 @@ func TestRunInvalid(t *testing.T) {
 			t.Parallel()
 			var base *Base
 			if tc.base != nil {
-				// Parse base in unchecked mode for test setup simplicity.
 				pos, err := Run(*tc.base, nil, true, &VoidOutputBuffer{})
 				if err != nil {
 					t.Fatalf("Failed to parse base for test: %v", err)
@@ -351,45 +829,174 @@ func TestRunInvalid(t *testing.T) {
 func TestRemoveDotSegments(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
+		name     string
 		input    string
 		expected string
 	}{
-		{"a/b/c/./../../g", "a/g"},
-		{"mid/content=5/../6", "mid/6"},
-		{".", ""},
-		{"./", ""},
-		{"..", ""},
-		{"../", ""},
-		{"../g", "g"},
-		{"../..", ""},
-		{"../../", ""},
-		{"../../g", "g"},
-		{"/.", "/"},
-		{"/./", "/"},
-		{"/..", "/"},
-		{"/../", "/"},
-		{"/../g", "/g"},
-		{"/a/../g", "/g"},
-		{"/a/b/../../g", "/g"},
-		{"a/./b", "a/b"},
-		{"a/../b", "b"},
-		{"a/b/.", "a/b/"},
-		{"a/b/./", "a/b/"},
-		{"a/b/..", "a/"},
-		{"a/b/../", "a/"},
-		{"a/b/c/../..", "a/"},
-		{"//a/b", "//a/b"},
-		{"/a/b//c", "/a/b//c"},
-		{"a//b/c", "a//b/c"},
-		{"a/b/..//c", "a//c"},
-		{"./a", "a"},
-		{"a/.", "a/"},
-		{"/a/.", "/a/"},
-		{"//", "//"},
+		{
+			name:     "complex relative path",
+			input:    "a/b/c/./../../g",
+			expected: "a/g",
+		},
+		{
+			name:     "path with content and navigation",
+			input:    "mid/content=5/../6",
+			expected: "mid/6",
+		},
+		{
+			name:     "single dot",
+			input:    ".",
+			expected: "",
+		},
+		{
+			name:     "single dot with slash",
+			input:    "./",
+			expected: "",
+		},
+		{
+			name:     "double dot",
+			input:    "..",
+			expected: "",
+		},
+		{
+			name:     "double dot with slash",
+			input:    "../",
+			expected: "",
+		},
+		{
+			name:     "double dot with path",
+			input:    "../g",
+			expected: "g",
+		},
+		{
+			name:     "two double dots",
+			input:    "../..",
+			expected: "",
+		},
+		{
+			name:     "two double dots with slash",
+			input:    "../../",
+			expected: "",
+		},
+		{
+			name:     "two double dots with path",
+			input:    "../../g",
+			expected: "g",
+		},
+		{
+			name:     "absolute single dot",
+			input:    "/.",
+			expected: "/",
+		},
+		{
+			name:     "absolute single dot with slash",
+			input:    "/./",
+			expected: "/",
+		},
+		{
+			name:     "absolute double dot",
+			input:    "/..",
+			expected: "/",
+		},
+		{
+			name:     "absolute double dot with slash",
+			input:    "/../",
+			expected: "/",
+		},
+		{
+			name:     "absolute double dot with path",
+			input:    "/../g",
+			expected: "/g",
+		},
+		{
+			name:     "absolute path navigation",
+			input:    "/a/../g",
+			expected: "/g",
+		},
+		{
+			name:     "absolute path deep navigation",
+			input:    "/a/b/../../g",
+			expected: "/g",
+		},
+		{
+			name:     "path with internal dot segment",
+			input:    "a/./b",
+			expected: "a/b",
+		},
+		{
+			name:     "path with internal double dot segment",
+			input:    "a/../b",
+			expected: "b",
+		},
+		{
+			name:     "path with trailing dot segment",
+			input:    "a/b/.",
+			expected: "a/b/",
+		},
+		{
+			name:     "path with trailing dot segment and slash",
+			input:    "a/b/./",
+			expected: "a/b/",
+		},
+		{
+			name:     "path with trailing double dot segment",
+			input:    "a/b/..",
+			expected: "a/",
+		},
+		{
+			name:     "path with trailing double dot segment and slash",
+			input:    "a/b/../",
+			expected: "a/",
+		},
+		{
+			name:     "path with deep trailing navigation",
+			input:    "a/b/c/../..",
+			expected: "a/",
+		},
+		{
+			name:     "path with double slash authority",
+			input:    "//a/b",
+			expected: "//a/b",
+		},
+		{
+			name:     "path with internal double slash",
+			input:    "/a/b//c",
+			expected: "/a/b//c",
+		},
+		{
+			name:     "path with internal double slash relative",
+			input:    "a//b/c",
+			expected: "a//b/c",
+		},
+		{
+			name:     "path with internal double slash and navigation",
+			input:    "a/b/..//c",
+			expected: "a//c",
+		},
+		{
+			name:     "path with leading dot segment",
+			input:    "./a",
+			expected: "a",
+		},
+		{
+			name:     "path with trailing dot segment no slash",
+			input:    "a/.",
+			expected: "a/",
+		},
+		{
+			name:     "absolute path with trailing dot",
+			input:    "/a/.",
+			expected: "/a/",
+		},
+		{
+			name:     "path is just double slash",
+			input:    "//",
+			expected: "//",
+		},
 	}
 
 	for _, tc := range testCases {
-		t.Run(tc.input, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			result := removeDotSegments(tc.input)
 			if result != tc.expected {
@@ -417,22 +1024,244 @@ func TestDeconstructRef(t *testing.T) {
 		ref  string
 		want deconstructedRefResult
 	}{
-		{"full", "s://a/p?q#f", deconstructedRefResult{"s", "a", "/p", "q", "f", true, true, true}},
-		{"no fragment", "s://a/p?q", deconstructedRefResult{"s", "a", "/p", "q", "", true, true, false}},
-		{"no query", "s://a/p#f", deconstructedRefResult{"s", "a", "/p", "", "f", true, false, true}},
-		{"no path", "s://a?q#f", deconstructedRefResult{"s", "a", "", "q", "f", true, true, true}},
-		{"no authority", "s:p?q#f", deconstructedRefResult{"s", "", "p", "q", "f", false, true, true}},
-		{"no scheme", "//a/p?q#f", deconstructedRefResult{"", "a", "/p", "q", "f", true, true, true}},
-		{"path only", "p", deconstructedRefResult{"", "", "p", "", "", false, false, false}},
-		{"empty", "", deconstructedRefResult{"", "", "", "", "", false, false, false}},
-		{"fragment only", "#f", deconstructedRefResult{"", "", "", "", "f", false, false, true}},
-		{"query only", "?q", deconstructedRefResult{"", "", "", "q", "", false, true, false}},
-		{"ambiguous path", "a:b", deconstructedRefResult{"a", "", "b", "", "", false, false, false}},
-		{"ambiguous path 2", "a:b/c", deconstructedRefResult{"a", "", "b/c", "", "", false, false, false}},
-		{"unambiguous path", "a/b:c", deconstructedRefResult{"", "", "a/b:c", "", "", false, false, false}},
-		{"network path", "//a/b", deconstructedRefResult{"", "a", "/b", "", "", true, false, false}},
-		{"path absolute", "/a/b", deconstructedRefResult{"", "", "/a/b", "", "", false, false, false}},
-		{"empty authority", "s://?q", deconstructedRefResult{"s", "", "", "q", "", true, true, false}},
+		{
+			name: "full iri",
+			ref:  "s://a/p?q#f",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "a",
+				Path:      "/p",
+				Query:     "q",
+				Fragment:  "f",
+				HasAuth:   true,
+				HasQuery:  true,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "no fragment",
+			ref:  "s://a/p?q",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "a",
+				Path:      "/p",
+				Query:     "q",
+				Fragment:  "",
+				HasAuth:   true,
+				HasQuery:  true,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "no query",
+			ref:  "s://a/p#f",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "a",
+				Path:      "/p",
+				Query:     "",
+				Fragment:  "f",
+				HasAuth:   true,
+				HasQuery:  false,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "no path",
+			ref:  "s://a?q#f",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "a",
+				Path:      "",
+				Query:     "q",
+				Fragment:  "f",
+				HasAuth:   true,
+				HasQuery:  true,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "no authority",
+			ref:  "s:p?q#f",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "",
+				Path:      "p",
+				Query:     "q",
+				Fragment:  "f",
+				HasAuth:   false,
+				HasQuery:  true,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "no scheme",
+			ref:  "//a/p?q#f",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "a",
+				Path:      "/p",
+				Query:     "q",
+				Fragment:  "f",
+				HasAuth:   true,
+				HasQuery:  true,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "path only",
+			ref:  "p",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "p",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "empty",
+			ref:  "",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "fragment only",
+			ref:  "#f",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "",
+				Query:     "",
+				Fragment:  "f",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   true,
+			},
+		},
+		{
+			name: "query only",
+			ref:  "?q",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "",
+				Query:     "q",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  true,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "ambiguous path with colon",
+			ref:  "a:b",
+			want: deconstructedRefResult{
+				Scheme:    "a",
+				Authority: "",
+				Path:      "b",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "ambiguous path with colon and slash",
+			ref:  "a:b/c",
+			want: deconstructedRefResult{
+				Scheme:    "a",
+				Authority: "",
+				Path:      "b/c",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "unambiguous path with colon",
+			ref:  "a/b:c",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "a/b:c",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "network path",
+			ref:  "//a/b",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "a",
+				Path:      "/b",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   true,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "path absolute",
+			ref:  "/a/b",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "/a/b",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "empty authority",
+			ref:  "s://?q",
+			want: deconstructedRefResult{
+				Scheme:    "s",
+				Authority: "",
+				Path:      "",
+				Query:     "q",
+				Fragment:  "",
+				HasAuth:   true,
+				HasQuery:  true,
+				HasFrag:   false,
+			},
+		},
+		{
+			name: "invalid scheme start char",
+			ref:  "1a:b",
+			want: deconstructedRefResult{
+				Scheme:    "",
+				Authority: "",
+				Path:      "1a:b",
+				Query:     "",
+				Fragment:  "",
+				HasAuth:   false,
+				HasQuery:  false,
+				HasFrag:   false,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -471,11 +1300,36 @@ func TestStringOutputBuffer_Truncate(t *testing.T) {
 		truncate int
 		expected string
 	}{
-		{"truncate middle", "abcdef", 3, "abc"},
-		{"truncate to zero", "abcdef", 0, ""},
-		{"truncate to full length", "abcdef", 6, "abcdef"},
-		{"truncate with negative", "abcdef", -1, "abcdef"},
-		{"truncate beyond length", "abcdef", 10, "abcdef"},
+		{
+			name:     "truncate middle",
+			initial:  "abcdef",
+			truncate: 3,
+			expected: "abc",
+		},
+		{
+			name:     "truncate to zero",
+			initial:  "abcdef",
+			truncate: 0,
+			expected: "",
+		},
+		{
+			name:     "truncate to full length",
+			initial:  "abcdef",
+			truncate: 6,
+			expected: "abcdef",
+		},
+		{
+			name:     "truncate with negative",
+			initial:  "abcdef",
+			truncate: -1,
+			expected: "abcdef",
+		},
+		{
+			name:     "truncate beyond length",
+			initial:  "abcdef",
+			truncate: 10,
+			expected: "abcdef",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -517,7 +1371,6 @@ func FuzzParse(f *testing.F) {
 	}
 
 	f.Fuzz(func(_ *testing.T, iri string) {
-		// Run with unchecked=false to exercise the validation logic.
 		_, _ = Run(iri, nil, false, &VoidOutputBuffer{})
 	})
 }
@@ -527,30 +1380,83 @@ func FuzzParse(f *testing.F) {
 // unexpected behavior in the resolution and normalization algorithms.
 func FuzzResolve(f *testing.F) {
 	testCases := []struct {
+		name string
 		base string
 		rel  string
 	}{
-		{"http://a/b/c/d;p?q", "g:h"},
-		{"http://a/b/c/d;p?q", "../g"},
-		{"file:foo", "/lv2.h"},
-		{"http://example.com", ""},
-		{"a:b", "c:d"},
+		{
+			name: "RFC3986 example with new scheme",
+			base: "http://a/b/c/d;p?q",
+			rel:  "g:h",
+		},
+		{
+			name: "RFC3986 example with path normalization",
+			base: "http://a/b/c/d;p?q",
+			rel:  "../g",
+		},
+		{
+			name: "File scheme with absolute path",
+			base: "file:foo",
+			rel:  "/lv2.h",
+		},
+		{
+			name: "Empty relative reference",
+			base: "http://example.com",
+			rel:  "",
+		},
+		{
+			name: "Ambiguous colon in path",
+			base: "a:b",
+			rel:  "c:d",
+		},
 	}
 	for _, tc := range testCases {
 		f.Add(tc.base, tc.rel)
 	}
 
 	f.Fuzz(func(_ *testing.T, baseIRI, relIRI string) {
-		// First, try to parse the base IRI. We use unchecked mode here because
-		// the fuzzer might generate an invalid base, which is fine. If parsing
-		// fails, we just skip this fuzz case.
 		basePos, err := Run(baseIRI, nil, true, &VoidOutputBuffer{})
 		if err != nil {
 			return
 		}
 		base := &Base{IRI: baseIRI, Pos: basePos}
 
-		// Now, attempt to resolve the relative IRI against the base.
 		_, _ = Run(relIRI, base, false, &VoidOutputBuffer{})
 	})
+}
+
+// TestVoidOutputBuffer checks the behavior of the VoidOutputBuffer, ensuring it
+// correctly tracks length without storing data, and that its methods like
+// Truncate and Reset work as expected.
+func TestVoidOutputBuffer(t *testing.T) {
+	t.Parallel()
+	b := &VoidOutputBuffer{}
+
+	if b.Len() != 0 {
+		t.Errorf("Initial Len() got %d, want 0", b.Len())
+	}
+	if b.String() != "" {
+		t.Errorf("Initial String() got %q, want \"\"", b.String())
+	}
+
+	b.WriteRune('a')
+	b.WriteString("xyz")
+	expectedLen := 4
+	if b.Len() != expectedLen {
+		t.Errorf("After writes, Len() got %d, want %d", b.Len(), expectedLen)
+	}
+
+	if b.String() != "" {
+		t.Errorf("String() should always be empty, but got %q", b.String())
+	}
+
+	b.Truncate(2)
+	if b.Len() != 2 {
+		t.Errorf("After Truncate(2), Len() got %d, want 2", b.Len())
+	}
+
+	b.Reset()
+	if b.Len() != 0 {
+		t.Errorf("After Reset, Len() got %d, want 0", b.Len())
+	}
 }
