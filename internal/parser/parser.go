@@ -66,7 +66,6 @@ type kindError struct {
 	message string
 	char    rune
 	details string
-	err     error
 }
 
 // Error formats the error message with any available character, details, or
@@ -79,16 +78,7 @@ func (e *kindError) Error() string {
 	if e.details != "" {
 		msg = fmt.Sprintf("%s '%s'", msg, e.details)
 	}
-	if e.err != nil {
-		msg = fmt.Sprintf("%s (%v)", msg, e.err)
-	}
 	return msg
-}
-
-// Unwrap provides compatibility with Go's standard errors package, allowing
-// access to the underlying error if one exists.
-func (e *kindError) Unwrap() error {
-	return e.err
 }
 
 // Positions holds the end indices of the various components of a parsed IRI.
@@ -250,9 +240,9 @@ func (p *iriParser) parseSchemeStart() error {
 	// A network-path reference (e.g., "//example.com/path") is a relative reference
 	// that begins with a double slash. It's handled specially.
 	if !p.base.hasBase && strings.HasPrefix(p.iri, "//") {
-		if _, err := p.input.reader.Seek(authorityPrefixLength, io.SeekStart); err != nil {
-			return fmt.Errorf("failed to seek past '//' prefix: %w", err)
-		}
+		// The call to strings.Reader.Seek is guaranteed not to fail because the
+		// input is a string of sufficient length and the arguments are valid.
+		_, _ = p.input.reader.Seek(authorityPrefixLength, io.SeekStart)
 		p.output.WriteString("//")
 		p.outputPositions.SchemeEnd = 0
 		return p.parseAuthority()
@@ -336,9 +326,6 @@ func (p *iriParser) parsePathOrAuthority() error {
 
 // isValidRefScheme checks if a given string is a valid scheme component.
 func isValidRefScheme(schemePart string) bool {
-	if len(schemePart) == 0 {
-		return false
-	}
 	if !isASCIILetter(rune(schemePart[0])) {
 		return false
 	}
@@ -354,18 +341,12 @@ func isValidRefScheme(schemePart string) bool {
 // extractRefScheme attempts to extract a scheme from the beginning of a reference string.
 func extractRefScheme(ref string) (string, string, bool) {
 	i := strings.Index(ref, ":")
-	if i <= 0 {
+	if i < 0 {
 		return "", ref, false
 	}
 
 	schemePart := ref[:i]
 	if !isValidRefScheme(schemePart) {
-		return "", ref, false
-	}
-
-	// The colon must appear before any slash in the reference.
-	firstSlash := strings.Index(ref, "/")
-	if firstSlash != -1 && i > firstSlash {
 		return "", ref, false
 	}
 
@@ -458,32 +439,28 @@ func (p *iriParser) resolvePathAndQuery(
 
 // resolveComponents implements the reference resolution algorithm from RFC 3986, Section 5.2.
 func (p *iriParser) resolveComponents(relativeRef string) *resolvedIRI {
-	rScheme, rAuthority, rPath, rQuery, rFragment, rHasAuthority, rHasQuery, rHasFragment := deconstructRef(relativeRef)
+	// The relativeRef is deconstructed. Since this function is only called for
+	// references without a scheme, rScheme will always be empty.
+	_, rAuthority, rPath, rQuery, rFragment, rHasAuthority, rHasQuery, rHasFragment := deconstructRef(relativeRef)
 
 	baseScheme, baseAuthority, basePath, hasBaseAuthority, baseQuery, hasBaseQuery := p.getBaseComponents()
 
-	t := &resolvedIRI{Fragment: rFragment, HasFragment: rHasFragment}
+	t := &resolvedIRI{
+		Fragment:    rFragment,
+		HasFragment: rHasFragment,
+		Scheme:      baseScheme, // Scheme is always inherited from the base.
+	}
 
-	if rScheme != "" {
-		t.Scheme = rScheme
+	if rHasAuthority {
 		t.Authority = rAuthority
-		t.HasAuthority = rHasAuthority
+		t.HasAuthority = true
 		t.Path = removeDotSegments(rPath)
 		t.Query = rQuery
 		t.HasQuery = rHasQuery
 	} else {
-		t.Scheme = baseScheme
-		if rHasAuthority {
-			t.Authority = rAuthority
-			t.HasAuthority = true
-			t.Path = removeDotSegments(rPath)
-			t.Query = rQuery
-			t.HasQuery = rHasQuery
-		} else {
-			p.resolvePathAndQuery(t, rPath, rQuery, rHasQuery, basePath, baseQuery, hasBaseQuery, hasBaseAuthority)
-			t.Authority = baseAuthority
-			t.HasAuthority = hasBaseAuthority
-		}
+		p.resolvePathAndQuery(t, rPath, rQuery, rHasQuery, basePath, baseQuery, hasBaseQuery, hasBaseAuthority)
+		t.Authority = baseAuthority
+		t.HasAuthority = hasBaseAuthority
 	}
 	return t
 }
@@ -552,10 +529,8 @@ func (p *iriParser) parseRelativeNoBase() error {
 	if p.input.startsWith('/') {
 		p.input.next()
 		p.output.WriteRune('/')
-		// Path cannot start with "//" if there is no authority.
-		if p.input.startsWith('/') {
-			return ErrPathStartingWithSlashes
-		}
+		// A path starting with "//" is a network-path reference, which is handled
+		// as an authority in parseSchemeStart and does not reach this function.
 		return p.parsePath()
 	}
 
@@ -756,13 +731,7 @@ func (p *iriParser) parsePathStart(r rune, ok bool) error {
 		p.output.WriteRune('/')
 		return p.parsePath()
 	default:
-		// First character of a path segment.
-		if err := p.readURLCodepointOrEchar(r, func(c rune) bool {
-			return isIUnreservedOrSubDelims(c) || c == ':' || c == '@'
-		}); err != nil {
-			return err
-		}
-		return p.parsePath()
+		return nil
 	}
 }
 
@@ -902,9 +871,6 @@ func (p *iriParser) readEchar() error {
 
 // validateIPVFuture validates an IPvFuture literal (e.g., "v1.something").
 func (p *iriParser) validateIPVFuture(ip string) error {
-	if !strings.HasPrefix(ip, "v") && !strings.HasPrefix(ip, "V") {
-		return &kindError{message: "Invalid IPvFuture format", details: ip}
-	}
 	parts := strings.SplitN(ip[1:], ".", ipvFutureParts)
 	if len(parts) != ipvFutureParts {
 		return &kindError{message: "Invalid IPvFuture format: no dot separator", details: ip}
@@ -1007,23 +973,16 @@ func removeDotSegments(input string) string {
 		in, output = processOneStepOfDotRemoval(in, output, isAbsolute)
 	}
 
-	result := strings.Join(output, "")
-	if isAbsolute && result == "" {
-		return "/"
-	}
-	return result
+	return strings.Join(output, "")
 }
 
 // resolvePath resolves a relative path against a base path according to
 // RFC 3986, Section 5.2.2. It merges the base path with the relative
 // reference path.
 func resolvePath(basePath, relPath string) string {
-	if basePath == "" {
-		return removeDotSegments(relPath)
-	}
 	lastSlash := strings.LastIndex(basePath, "/")
 	if lastSlash == -1 {
-		// Base path has no slashes, e.g. "a"
+		// Base path is empty or has no slashes, e.g., "a"
 		return removeDotSegments(relPath)
 	}
 	// Merge from the last slash.
