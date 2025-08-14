@@ -34,7 +34,6 @@ To add `langtag` to your project, use `go get`:
 ```sh
 go get github.com/jplu/trident/langtag
 ```
-*(Note: Please replace `github.com/user/trident/langtag` with the actual import path of the library.)*
 
 ## Quick Start
 
