@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: Run contributor action
-        uses: github/contributors@v1.5.9
+        uses: github/contributors@v1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPOSITORY: jplu/trident
