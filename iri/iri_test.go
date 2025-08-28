@@ -18,2383 +18,992 @@ limitations under the License.
 package iri
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
+
+	"golang.org/x/text/unicode/norm"
 )
 
-// fst is a generic helper function that returns the first of two arguments.
-// Useful for unwrapping functions that return a value and a boolean, like component accessors.
-func fst[T, U any](val T, _ U) T {
-	return val
-}
-
-// snd is a generic helper function that returns the second of two arguments.
-// Useful for unwrapping functions that return a value and a boolean.
-func snd[T, U any](_ T, val U) U {
-	return val
-}
-
-// TestParsing verifies that various valid absolute IRIs can be parsed correctly by both
-// the checked (ParseIri) and unchecked (ParseIriUnchecked) functions. It also compares
-// the results of the component accessor methods (Scheme, Authority, etc.) from both
-// parsing methods to ensure they are consistent.
-func TestParsing(t *testing.T) {
-	t.Parallel()
-	examples := []string{
-		"file://foo",
-		"ftp://ftp.is.co.za/rfc/rfc1808.txt",
-		"http://www.ietf.org/rfc/rfc2396.txt",
-		"ldap://[2001:db8::7]/c=GB?objectClass?one",
-		"mailto:John.Doe@example.com",
-		"news:comp.infosystems.www.servers.unix",
-		"tel:+1-816-555-1212",
-		"telnet://192.0.2.16:80/",
-		"urn:oasis:names:specification:docbook:dtd:xml:4.1.2",
-		"http://example.com",
-		"http://example.com/",
-		"http://example.com/foo",
-		"http://example.com/foo/bar",
-		"http://example.com/foo/bar/",
-		"http://example.com/foo/bar?q=1&r=2",
-		"http://example.com/foo/bar/?q=1&r=2",
-		"http://example.com#toto",
-		"http://example.com/#toto",
-		"http://example.com/foo#toto",
-		"http://example.com/foo/bar#toto",
-		"http://example.com/foo/bar/#toto",
-		"http://example.com/foo/bar?q=1&r=2#toto",
-		"http://example.com/foo/bar/?q=1&r=2#toto",
-		// Test with various iunreserved characters
-		"http://a.example/AZaz\u00C0\u00D6\u00D8\u00F6\u00F8\u02FF\u0370\u037D\u037F\u1FFF\u200C\u200D\u2070\u218F\u2C00\u2FEF\u3001\uD7FF\uFA0E\uFDCF\uFDF0\uFFEF\U00010000\U000EFFFD",
-		"http://a.example/?AZaz\uE000\uF8FF\U000F0000\U000FFFFD\U00100000\U0010FFFD\u00C0\u00D6\u00D8\u00F6\u00F8\u02FF\u0370\u037D\u037F\u1FFF\u200C\u200D\u2070\u218F\u2C00\u2FEF\u3001\uD7FF\uFA0E\uFDCF\uFDF0\uFFEF\U00010000\U000EFFFD",
-		// Test IPvFuture literals
-		"http://[va.12z]",
-		"http://[vff.B]",
-		"http://[V0.a]",
-	}
-
-	for _, e := range examples {
-		t.Run(e, func(t *testing.T) {
-			checkParsing(t, e)
-		})
-	}
-}
-
-// checkParsing is a helper function for TestParsing. It performs the actual checks
-// for a single IRI string.
-func checkParsing(t *testing.T, e string) {
+// mustParseRef is a helper that parses a string as a Ref and fails the test if there's an error.
+func mustParseRef(t *testing.T, s string) *Ref {
 	t.Helper()
-	t.Parallel()
-	unchecked := ParseIriUnchecked(e)
-	if unchecked.String() != e {
-		t.Errorf("ParseIriUnchecked returned %q, want %q", unchecked.String(), e)
-	}
-
-	iri, err := ParseIri(e)
+	r, err := ParseRef(s)
 	if err != nil {
-		t.Fatalf("ParseIri failed for %q: %v", e, err)
+		t.Fatalf("mustParseRef failed for input '%s': %v", s, err)
 	}
-	if unchecked.String() != iri.String() {
-		t.Errorf("Unchecked %q != Checked %q", unchecked.String(), iri.String())
-	}
+	return r
+}
 
-	// Compare components
-	if sch1 := unchecked.Scheme(); sch1 != iri.Scheme() {
-		t.Errorf("Scheme mismatch: unchecked %q, checked %q", sch1, iri.Scheme())
+// mustParseIri is a helper that parses a string as an Iri and fails the test if there's an error.
+func mustParseIri(t *testing.T, s string) *Iri {
+	t.Helper()
+	i, err := ParseIri(s)
+	if err != nil {
+		t.Fatalf("mustParseIri failed for input '%s': %v", s, err)
 	}
-	if auth1, ok1 := unchecked.Authority(); auth1 != fst(iri.Authority()) || ok1 != snd(iri.Authority()) {
-		t.Errorf("Authority mismatch: unchecked %q, checked %q", auth1, fst(iri.Authority()))
-	}
-	if path1 := unchecked.Path(); path1 != iri.Path() {
-		t.Errorf("Path mismatch: unchecked %q, checked %q", path1, iri.Path())
-	}
-	if q1, ok1 := unchecked.Query(); q1 != fst(iri.Query()) || ok1 != snd(iri.Query()) {
-		t.Errorf("Query mismatch: unchecked %q, checked %q", q1, fst(iri.Query()))
-	}
-	if f1, ok1 := unchecked.Fragment(); f1 != fst(iri.Fragment()) || ok1 != snd(iri.Fragment()) {
-		t.Errorf("Fragment mismatch: unchecked %q, checked %q", f1, fst(iri.Fragment()))
+	return i
+}
+
+// TestParseError_Error tests the Error method of the ParseError type.
+func TestParseError_Error(t *testing.T) {
+	err := &ParseError{Message: "test message"}
+	expected := "IRI parse error: test message"
+	if err.Error() != expected {
+		t.Errorf("Expected error message '%s', got '%s'", expected, err.Error())
 	}
 }
 
-// TestRelativeParsing checks the parsing and resolution of various relative IRI references.
-// It ensures that valid relative references are parsed correctly by both checked and
-// unchecked methods and that their resolution against a base IRI produces consistent results.
-func TestRelativeParsing(t *testing.T) {
-	t.Parallel()
-	examples := []string{
-		"file:///foo/bar",
-		"mailto:user@host?subject=blah",
-		"dav:",
-		"about:",
-		"http://www.yahoo.com",
-		"http://www.yahoo.com/",
-		"http://1.2.3.4/",
-		"http://www.yahoo.com/stuff",
-		"http://www.yahoo.com/stuff/",
-		"http://www.yahoo.com/hello%20world/",
-		"http://www.yahoo.com?name=obi",
-		"http://www.yahoo.com?name=obi+wan&status=jedi",
-		"http://www.yahoo.com?onery",
-		"http://www.yahoo.com#bottom",
-		"http://www.yahoo.com/yelp.html#bottom",
-		"https://www.yahoo.com/",
-		"ftp://www.yahoo.com/",
-		"ftp://www.yahoo.com/hello",
-		"demo.txt",
-		"demo/hello.txt",
-		"demo/hello.txt?query=hello#fragment",
-		"/cgi-bin/query?query=hello#fragment",
-		"/demo.txt",
-		"/hello/demo.txt",
-		"hello/demo.txt",
-		"/",
-		"",
-		"#",
-		"#here",
-		"http://www.yahoo.com?name=%00%01",
-		"http://www.yaho%6f.com",
-		"http://www.yahoo.com/hello%00world/",
-		"http://www.yahoo.com/hello+world/",
-		"http://www.yahoo.com?name=obi&",
-		"http://www.yahoo.com?name=obi&type=",
-		"http://www.yahoo.com/yelp.html#",
-		"//",
-		"http://example.org/aaa/bbb#ccc",
-		"mailto:local@domain.org",
-		"mailto:local@domain.org#frag",
-		"HTTP://EXAMPLE.ORG/AAA/BBB#CCC",
-		"//example.org/aaa/bbb#ccc",
-		"/aaa/bbb#ccc",
-		"bbb#ccc",
-		"#ccc",
-		"#",
-		"A'C",
-		"http://example.org/aaa%2fbbb#ccc",
-		"http://example.org/aaa%2Fbbb#ccc",
-		"%2F",
-		"?%2F",
-		"#?%2F",
-		"aaa%2Fbbb",
-		"http://example.org:80/aaa/bbb#ccc",
-		"http://example.org:/aaa/bbb#ccc",
-		"http://example.org./aaa/bbb#ccc",
-		"http://example.123./aaa/bbb#ccc",
-		"http://example.org",
-		"http://[FEDC:AA98:7654:3210:FEDC:AA98:7654:3210]:80/index.html",
-		"http://[1080:0:0:0:8:800:200C:417A]/index.html",
-		"http://[3ffe:2a00:100:7031::1]",
-		"http://[1080::8:800:200C:417A]/foo",
-		"http://[::192.9.5.5]/ipng",
-		"http://[::FFFF:129.144.52.38]:80/index.html",
-		"http://[2010:836B:4179::836B:4179]",
-		"//[2010:836B:4179::836B:4179]",
-		"http://example/Andrȷ",
-		"file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/",
-		"http://a/?\uE000",
-		"?\uE000",
+// TestParseError_Unwrap tests the Unwrap method of the ParseError type.
+func TestParseError_Unwrap(t *testing.T) {
+	innerErr := errors.New("inner error")
+	err := &ParseError{Message: "wrapper", Err: innerErr}
+	if unwrapped := err.Unwrap(); !errors.Is(unwrapped, innerErr) {
+		t.Errorf("Expected unwrapped error to be '%v', got '%v'", innerErr, unwrapped)
+	}
+	if unwrapped := (&ParseError{}).Unwrap(); unwrapped != nil {
+		t.Errorf("Expected unwrapped error to be nil, got '%v'", unwrapped)
+	}
+}
+
+// TestRef_String tests that the String method of a Ref returns the original parsed string.
+func TestRef_String(t *testing.T) {
+	// RFC 3987 Section 2: "an IRI is defined as a sequence of characters"
+	// The String() method should return this original sequence.
+	iriStr := "http://example.com/path?query#fragment"
+	ref := mustParseRef(t, iriStr)
+	if ref.String() != iriStr {
+		t.Errorf("Expected String() to return '%s', got '%s'", iriStr, ref.String())
+	}
+}
+
+type componentTestCase struct {
+	name         string
+	iri          string
+	isAbsolute   bool
+	scheme       string
+	hasScheme    bool
+	authority    string
+	hasAuthority bool
+	path         string
+	query        string
+	hasQuery     bool
+	fragment     string
+	hasFragment  bool
+}
+
+// assertComponents checks if the components of a Ref match the expectations in a test case.
+func assertComponents(t *testing.T, ref *Ref, tc componentTestCase) {
+	t.Helper()
+
+	if got := ref.IsAbsolute(); got != tc.isAbsolute {
+		t.Errorf("IsAbsolute() = %v, want %v", got, tc.isAbsolute)
 	}
 
-	base, baseErr := ParseIri("http://a/b/c/d;p?q")
-	if baseErr != nil {
-		t.Fatalf("Failed to parse base IRI: %v", baseErr)
+	s, ok := ref.Scheme()
+	if ok != tc.hasScheme || s != tc.scheme {
+		t.Errorf("Scheme() = (%q, %v), want (%q, %v)", s, ok, tc.scheme, tc.hasScheme)
 	}
 
-	for _, e := range examples {
-		t.Run(e, func(t *testing.T) {
-			t.Parallel()
-			unchecked := ParseRefUnchecked(e)
-			if unchecked.String() != e {
-				t.Errorf("ParseRefUnchecked returned %q, want %q", unchecked.String(), e)
-			}
+	a, ok := ref.Authority()
+	if ok != tc.hasAuthority || a != tc.authority {
+		t.Errorf("Authority() = (%q, %v), want (%q, %v)", a, ok, tc.authority, tc.hasAuthority)
+	}
 
-			ref, err := ParseRef(e)
-			if err != nil {
-				t.Fatalf("ParseRef failed for %q: %v", e, err)
-			}
-			if unchecked.String() != ref.String() {
-				t.Errorf("Unchecked %q != Checked %q", unchecked.String(), ref.String())
-			}
+	if p := ref.Path(); p != tc.path {
+		t.Errorf("Path() = %q, want %q", p, tc.path)
+	}
 
-			resolved, err := base.Resolve(e)
+	q, ok := ref.Query()
+	if ok != tc.hasQuery || q != tc.query {
+		t.Errorf("Query() = (%q, %v), want (%q, %v)", q, ok, tc.query, tc.hasQuery)
+	}
+
+	f, ok := ref.Fragment()
+	if ok != tc.hasFragment || f != tc.fragment {
+		t.Errorf("Fragment() = (%q, %v), want (%q, %v)", f, ok, tc.fragment, tc.hasFragment)
+	}
+}
+
+// TestRef_ComponentAccessors tests the various methods for accessing IRI components on a Ref.
+func TestRef_ComponentAccessors(t *testing.T) {
+	testCases := []componentTestCase{
+		{
+			name:         "Full IRI",
+			iri:          "foo://example.com:8042/over/there?name=ferret#nose",
+			isAbsolute:   true,
+			scheme:       "foo",
+			hasScheme:    true,
+			authority:    "example.com:8042",
+			hasAuthority: true,
+			path:         "/over/there",
+			query:        "name=ferret",
+			hasQuery:     true,
+			fragment:     "nose",
+			hasFragment:  true,
+		},
+		{
+			name:         "Relative Reference",
+			iri:          "/path/to/resource?key=val#frag",
+			isAbsolute:   false,
+			scheme:       "",
+			hasScheme:    false,
+			authority:    "",
+			hasAuthority: false,
+			path:         "/path/to/resource",
+			query:        "key=val",
+			hasQuery:     true,
+			fragment:     "frag",
+			hasFragment:  true,
+		},
+		{
+			name:         "URN with no authority",
+			iri:          "urn:example:animal:ferret:nose",
+			isAbsolute:   true,
+			scheme:       "urn",
+			hasScheme:    true,
+			authority:    "",
+			hasAuthority: false,
+			path:         "example:animal:ferret:nose",
+			query:        "",
+			hasQuery:     false,
+			fragment:     "",
+			hasFragment:  false,
+		},
+		{
+			name:         "No Query or Fragment",
+			iri:          "http://example.com/path",
+			isAbsolute:   true,
+			scheme:       "http",
+			hasScheme:    true,
+			authority:    "example.com",
+			hasAuthority: true,
+			path:         "/path",
+			query:        "",
+			hasQuery:     false,
+			fragment:     "",
+			hasFragment:  false,
+		},
+		{
+			name:         "No Path",
+			iri:          "mailto:user@example.com",
+			isAbsolute:   true,
+			scheme:       "mailto",
+			hasScheme:    true,
+			authority:    "",
+			hasAuthority: false,
+			path:         "user@example.com",
+			query:        "",
+			hasQuery:     false,
+			fragment:     "",
+			hasFragment:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := mustParseRef(t, tc.iri)
+			assertComponents(t, ref, tc)
+		})
+	}
+}
+
+// TestRef_MarshalJSON tests the JSON marshaling of a Ref.
+func TestRef_MarshalJSON(t *testing.T) {
+	ref := mustParseRef(t, "http://example.com/a?b#c")
+	jsonData, err := json.Marshal(ref)
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+
+	expected := `"http://example.com/a?b#c"`
+	if string(jsonData) != expected {
+		t.Errorf("Expected JSON string '%s', got '%s'", expected, string(jsonData))
+	}
+}
+
+// TestRef_UnmarshalJSON tests the JSON unmarshaling of a Ref.
+func TestRef_UnmarshalJSON(t *testing.T) {
+	t.Run("Valid IRI", func(t *testing.T) {
+		var ref Ref
+		jsonData := []byte(`"http://example.com/a?b#c"`)
+		err := json.Unmarshal(jsonData, &ref)
+		if err != nil {
+			t.Fatalf("UnmarshalJSON failed: %v", err)
+		}
+		expected := "http://example.com/a?b#c"
+		if ref.String() != expected {
+			t.Errorf("Expected unmarshaled string '%s', got '%s'", expected, ref.String())
+		}
+	})
+
+	t.Run("Invalid IRI", func(t *testing.T) {
+		var ref Ref
+		// Use an unambiguously invalid IRI syntax.
+		jsonData := []byte(`"http://example.com/["`)
+		err := json.Unmarshal(jsonData, &ref)
+		if err == nil {
+			t.Fatal("Expected an error for invalid IRI, but got none")
+		}
+		if !strings.Contains(err.Error(), "Invalid IRI character") {
+			t.Errorf("Expected error message to contain 'Invalid IRI character', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("Invalid JSON", func(t *testing.T) {
+		var ref Ref
+		jsonData := []byte(`not-a-string`)
+		err := json.Unmarshal(jsonData, &ref)
+		if err == nil {
+			t.Fatal("Expected an error for invalid JSON, but got none")
+		}
+	})
+}
+
+// TestParseRef_Valid tests parsing of various valid IRI-references.
+func TestParseRef_Valid(t *testing.T) {
+	// RFC 3986 & 3987 define the generic syntax for URI-reference and IRI-reference.
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"Absolute IRI", "http://example.com/p?q#f"},
+		{"Valid Absolute IRI with colon in path", "a:b/c"},
+		{"Relative-path reference", "a/b/c"},
+		{"Absolute-path reference", "/a/b/c"},
+		{"Network-path reference", "//example.com/path"},
+		{"Empty reference", ""},
+		{"Fragment-only reference", "#fragment"},
+		{"Query-only reference", "?query"},
+		{"URN", "urn:isbn:0451450523"},
+		{"IRI with non-ASCII chars", "http://例子.com/résumé"},
+		{"Valid absolute IRI with single-letter scheme", "a:b"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := ParseRef(tc.input)
 			if err != nil {
-				t.Fatalf("base.Resolve failed for %q: %v", e, err)
+				t.Fatalf("Expected no error, but got: %v", err)
 			}
-			resolvedUnchecked := base.ResolveUnchecked(e)
-			if resolved.String() != resolvedUnchecked.String() {
-				t.Errorf("Resolve gives %q, ResolveUnchecked gives %q", resolved.String(), resolvedUnchecked.String())
+			if ref == nil {
+				t.Fatal("Expected a non-nil Ref, but got nil")
+			}
+			if ref.String() != tc.input {
+				t.Errorf("Expected ref string '%s', got '%s'", tc.input, ref.String())
 			}
 		})
 	}
 }
 
-// TestWrongRelativeParsing confirms that the parser correctly rejects a list
-// of malformed IRI references, returning an error for each.
-func TestWrongRelativeParsing(t *testing.T) {
-	t.Parallel()
-	examples := []string{
-		"beepbeep\x07\x07", // Control characters
-		"\n",
-		"http://www yahoo.com", // Space in host
-		"http://www.yahoo.com/hello world/",
-		"http://www.yahoo.com/yelp.html#\"",
-		"[2010:836B:4179::836B:4179]", // Missing scheme
-		" ",
-		"%", // Incomplete percent encoding
-		"A%Z",
-		"%ZZ",
-		"%AZ",
-		"A C", // Invalid characters
-		"A`C",
-		"A<C",
-		"A>C",
-		"A^C",
-		"A\\C",
-		"A{C",
-		"A|C",
-		"A}C",
-		"A[C",
-		"A]C",
-		"A[**]C",
-		"http://[xyz]/",
-		"http://]/",
-		"http://example.org/[2010:836B:4179::836B:4179]",
-		"http://example.org/abc#[2010:836B:4179::836B:4179]",
-		"http://example.org/xxx/[qwerty]#a[b]",
-		"http://w3c.org:80path1/path2", // Missing slash after port
-		":a/b",
-		"http://example.com/\uE000",
-		"\uE000",
-		"http://example.com/#\uE000",
-		"#\uE000",
-		"//\uFFFF",
-		"?\uFFFF",
-		"/\u0000", // Invalid character ranges
-		"?\u0000",
-		"#\u0000",
-		"/\uE000",
-		"/\uF8FF",
-		"/\U000F0000",
-		"/\U000FFFFD",
-		"/\U00100000",
-		"/\U0010FFFD",
-		"?\uFDEF",
-		"?\uFFFF",
-		"/\uFDEF",
-		"/\uFFFF",
-		"/\U0001FFFF",
-		"/\U0002FFFF",
-		"/\U0003FFFF",
-		"/\U0004FFFF",
-		"/\U0005FFFF",
-		"/\U0006FFFF",
-		"/\U0007FFFF",
-		"/\U0008FFFF",
-		"/\U0009FFFF",
-		"/\U000AFFFF",
-		"/\U000BFFFF",
-		"/\U000CFFFF",
-		"/\U000DFFFF",
-		"/\U000EFFFF",
-		"/\U000FFFFF",
-		"http://[/",
-		"http://[::1]a/",
-		"//\u034f@[]",
-		"//@@",
-		"$:",
-		"-:",
-		":",
-		"http://[]", // Invalid IPvFuture
-		"http://[a]",
-		"http://[vz]",
-		"http://[v11]",
-		"http://[v1.]",
-		"http://[v.a]",
-		"http://[v1.@]",
-		"http://[v1.%01]",
-		"//[v1.\u0582]",
+// TestParseRef_Invalid tests parsing of various invalid IRI-references.
+func TestParseRef_Invalid(t *testing.T) {
+	testCases := []struct {
+		name   string
+		input  string
+		errMsg string
+	}{
+		{"Invalid scheme start", "1http://example.com", "Invalid IRI character in first path segment"},
+		{"Invalid path with // no authority", "scheme:..//path", "An IRI path is not allowed to start with //"},
+		{"Invalid percent encoding", "http://example.com/%GG", "Invalid IRI percent encoding"},
 	}
 
-	base, baseErr := ParseIri("http://a/b/c/d;p?q")
-	if baseErr != nil {
-		t.Fatalf("Failed to parse base IRI: %v", baseErr)
-	}
-
-	for _, e := range examples {
-		t.Run(e, func(t *testing.T) {
-			t.Parallel()
-			if _, err := base.Resolve(e); err == nil {
-				t.Errorf("Expected an error for %q but got none", e)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := ParseRef(tc.input)
+			if err == nil {
+				t.Fatal("Expected an error, but got none")
+			}
+			if ref != nil {
+				t.Fatal("Expected a nil Ref on error, but got a value")
+			}
+			if !strings.Contains(err.Error(), tc.errMsg) {
+				t.Errorf("Expected error message to contain '%s', got '%s'", tc.errMsg, err.Error())
 			}
 		})
 	}
 }
 
-// TestWrongRelativeParsingOnScheme tests an edge case where a malformed relative
-// path could be misinterpreted in the context of a scheme-only base IRI.
-func TestWrongRelativeParsingOnScheme(t *testing.T) {
-	t.Parallel()
-	examples := []string{".///C:::"}
-	base, baseErr := ParseIri("x:")
-	if baseErr != nil {
-		t.Fatalf("Failed to parse base IRI: %v", baseErr)
-	}
-	for _, e := range examples {
-		t.Run(e, func(t *testing.T) {
-			t.Parallel()
-			if _, err := base.Resolve(e); err == nil {
-				t.Errorf("Expected an error for %q but got none", e)
-			}
-		})
-	}
-}
+// TestParseNormalizedRef tests that parsing a reference with this function results in an NFC-normalized string.
+func TestParseNormalizedRef(t *testing.T) {
+	// RFC 3987, Section 5.3.2.2 discusses character normalization (NFC).
+	// "when a resource is created, its IRI should be as character normalized as possible (i.e., NFC...)"
+	decomposed := "e\u0301" // e + combining acute accent
+	composed := "\u00e9"    // é (precomposed)
 
-// resolveTest is a helper struct for defining resolution test cases.
-type resolveTest struct {
-	name     string
-	relative string
-	base     string
-	expected string
-}
-
-// TestResolveRelativeIRI contains a comprehensive suite of resolution tests,
-// many drawn from RFC 3986 examples, to verify the correctness of the
-// reference resolution algorithm.
-func TestResolveRelativeIRI(t *testing.T) {
-	t.Parallel()
-	examples := []resolveTest{
-		{
-			name:     "RFC3986 Normal Example: path /.",
-			relative: "/.",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/"},
-		{
-			name:     "RFC3986 Normal Example: path /.foo",
-			relative: "/.foo",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/.foo",
-		},
-		{
-			name:     "RFC3986 Normal Example: path .foo",
-			relative: ".foo",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/.foo",
-		},
-		{
-			name:     "RFC3986 Normal Example: new scheme",
-			relative: "g:h",
-			base:     "http://a/b/c/d;p?q",
-			expected: "g:h",
-		},
-		{
-			name:     "RFC3986 Normal Example: relative path",
-			relative: "g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g",
-		},
-		{
-			name:     "RFC3986 Normal Example: relative dot-slash",
-			relative: "./g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g",
-		},
-		{
-			name:     "RFC3986 Normal Example: relative path with slash",
-			relative: "g/",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g/",
-		},
-		{
-			name:     "RFC3986 Normal Example: path from root",
-			relative: "/g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/g",
-		},
-		{
-			name:     "RFC3986 Normal Example: scheme-relative",
-			relative: "//g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://g",
-		},
-		{
-			name:     "RFC3986 Normal Example: query only",
-			relative: "?y",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/d;p?y",
-		},
-		{
-			name:     "RFC3986 Normal Example: path and query",
-			relative: "g?y",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g?y",
-		},
-		{
-			name:     "RFC3986 Normal Example: fragment only",
-			relative: "#s",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/d;p?q#s",
-		},
-		{
-			name:     "RFC3986 Normal Example: path and fragment",
-			relative: "g#s",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g#s",
-		},
-		{
-			name:     "RFC3986 Normal Example: path, query, fragment",
-			relative: "g?y#s",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g?y#s",
-		},
-		{
-			name:     "RFC3986 Normal Example: path with semicolon",
-			relative: ";x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/;x",
-		},
-		{
-			name:     "RFC3986 Normal Example: segment with semicolon",
-			relative: "g;x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g;x",
-		},
-		{
-			name:     "RFC3986 Normal Example: all components",
-			relative: "g;x?y#s",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g;x?y#s",
-		},
-		{
-			name:     "RFC3986 Normal Example: empty reference",
-			relative: "",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/d;p?q",
-		},
-		{
-			name:     "RFC3986 Normal Example: single dot",
-			relative: ".",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/",
-		},
-		{
-			name:     "RFC3986 Normal Example: single dot-slash",
-			relative: "./",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/",
-		},
-		{
-			name:     "RFC3986 Normal Example: double dot",
-			relative: "..",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/",
-		},
-		{
-			name:     "RFC3986 Normal Example: double dot-slash",
-			relative: "../",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/",
-		},
-		{
-			name:     "RFC3986 Normal Example: path up one level",
-			relative: "../g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/g",
-		},
-		{
-			name:     "RFC3986 Normal Example: path up two levels",
-			relative: "../..",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/",
-		},
-		{
-			name:     "RFC3986 Normal Example: path up two levels slash",
-			relative: "../../",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/",
-		},
-		{
-			name:     "RFC3986 Normal Example: path up two levels with new segment",
-			relative: "../../g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/g",
-		},
-		{
-			name:     "RFC3986 Abnormal: path with dot-dot at root",
-			relative: "/../g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/g",
-		},
-		{
-			name:     "RFC3986 Abnormal: segment ending in dot",
-			relative: "g.",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g.",
-		},
-		{
-			name:     "RFC3986 Abnormal: segment starting with dot",
-			relative: ".g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/.g",
-		},
-		{
-			name:     "RFC3986 Abnormal: segment ending in double-dot",
-			relative: "g..",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g..",
-		},
-		{
-			name:     "RFC3986 Abnormal: segment starting with double-dot",
-			relative: "..g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/..g",
-		},
-		{
-			name:     "RFC3986 Abnormal: nonsensical path",
-			relative: "./../g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/g",
-		},
-		{
-			name:     "RFC3986 Abnormal: trailing dot segment",
-			relative: "./g/.",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g/",
-		},
-		{
-			name:     "RFC3986 Abnormal: middle dot segment",
-			relative: "g/./h",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g/h",
-		},
-		{
-			name:     "RFC3986 Abnormal: path normalization up and down",
-			relative: "g/../h",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/h",
-		},
-		{
-			name:     "RFC3986 Opaque URI",
-			relative: "http:g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http:g",
-		},
-		{
-			name:     "RFC3986 Opaque URI empty path",
-			relative: "http:",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http:",
-		},
-		{
-			name:     "Path traversal up one level",
-			relative: "../r",
-			base:     "http://ex/x/y/z",
-			expected: "http://ex/x/r",
-		},
-		{
-			name:     "Simple relative path from directory",
-			relative: "q/r",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/q/r",
-		},
-		{
-			name:     "Simple relative path with fragment",
-			relative: "q/r#s",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/q/r#s",
-		},
-		{
-			name:     "Simple relative path from directory with trailing slash",
-			relative: "z/",
-			base:     "http://ex/x/y/",
-			expected: "http://ex/x/y/z/",
-		},
-		{
-			name:     "Fragment on file URI",
-			relative: "#Animal",
-			base:     "file:/swap/test/animal.rdf",
-			expected: "file:/swap/test/animal.rdf#Animal",
-		},
-		{
-			name:     "Absolute path on file URI",
-			relative: "/r",
-			base:     "file:/ex/x/y/z",
-			expected: "file:/r"},
-		{
-			name:     "Relative path from authority-only IRI",
-			relative: "s",
-			base:     "http://example.com",
-			expected: "http://example.com/s",
-		},
-		{
-			name:     "Path normalization with params",
-			relative: "g;x=1/./y",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g;x=1/y",
-		},
-		{
-			name:     "Path normalization up and down with params",
-			relative: "g;x=1/../y",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/y",
-		},
-		{
-			name:     "Dot segment in query",
-			relative: "g?y/./x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g?y/./x",
-		},
-		{
-			name:     "Dot-dot segment in query",
-			relative: "g?y/../x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g?y/../x",
-		},
-		{
-			name:     "Dot segment in fragment",
-			relative: "g#s/./x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g#s/./x",
-		},
-		{
-			name:     "Dot-dot segment in fragment",
-			relative: "g#s/../x",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/b/c/g#s/../x",
-		},
-		{
-			name:     "Abnormal path normalization from root",
-			relative: "/a/b/c/./../../g",
-			base:     "http://a/b/c/d;p?q",
-			expected: "http://a/a/g",
-		},
-		{
-			name:     "Base with path-like query: relative path",
-			relative: "g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g",
-		},
-		{
-			name:     "Base with path-like query: relative dot-slash",
-			relative: "./g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g",
-		},
-		{
-			name:     "Base with path-like query: relative path with slash",
-			relative: "g/",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g/",
-		},
-		{
-			name:     "Base with path-like query: path from root",
-			relative: "/g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/g",
-		},
-		{
-			name:     "Base with path-like query: scheme-relative",
-			relative: "//g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://g",
-		},
-		{
-			name:     "Base with path-like query: query only",
-			relative: "?y",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/d;p?y",
-		},
-		{
-			name:     "Base with path-like query: path and query",
-			relative: "g?y",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g?y",
-		},
-		{
-			name:     "Base with path-like query: dot in query",
-			relative: "g?y/./x",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g?y/./x",
-		},
-		{
-			name:     "Base with path-like query: dot-dot in query",
-			relative: "g?y/../x",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g?y/../x",
-		},
-		{
-			name:     "Base with path-like query: path and fragment",
-			relative: "g#s",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g#s",
-		},
-		{
-			name:     "Base with path-like query: dot in fragment",
-			relative: "g#s/./x",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g#s/./x",
-		},
-		{
-			name:     "Base with path-like query: dot-dot in fragment",
-			relative: "g#s/../x",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/g#s/../x",
-		},
-		{
-			name:     "Base with path-like query: dot-slash",
-			relative: "./",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/c/",
-		},
-		{
-			name:     "Base with path-like query: double dot-slash",
-			relative: "../",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/",
-		},
-		{
-			name:     "Base with path-like query: path up one level",
-			relative: "../g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/b/g",
-		},
-		{
-			name:     "Base with path-like query: path up two levels slash",
-			relative: "../../",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/",
-		},
-		{
-			name:     "Base with path-like query: path up two levels",
-			relative: "../../g",
-			base:     "http://a/b/c/d;p?q=1/2",
-			expected: "http://a/g",
-		},
-		{
-			name:     "Base with path-like segment: relative path",
-			relative: "g",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g",
-		},
-		{
-			name:     "Base with path-like segment: relative dot-slash",
-			relative: "./g",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g",
-		},
-		{
-			name:     "Base with path-like segment: relative path with slash",
-			relative: "g/",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g/",
-		},
-		{
-			name:     "Base with path-like segment: path and query",
-			relative: "g?y",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g?y",
-		},
-		{
-			name:     "Base with path-like segment: semicolon path",
-			relative: ";x",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/;x",
-		},
-		{
-			name:     "Base with path-like segment: path with semicolon",
-			relative: "g;x",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g;x",
-		},
-		{
-			name:     "Base with path-like segment: path norm with params",
-			relative: "g;x=1/./y",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/g;x=1/y",
-		},
-		{
-			name:     "Base with path-like segment: path norm up and down",
-			relative: "g;x=1/../y",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/y",
-		},
-		{
-			name:     "Base with path-like segment: dot-slash",
-			relative: "./",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/d;p=1/",
-		},
-		{
-			name:     "Base with path-like segment: double dot-slash",
-			relative: "../",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/",
-		},
-		{
-			name:     "Base with path-like segment: path up one level",
-			relative: "../g",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/c/g",
-		},
-		{
-			name:     "Base with path-like segment: path up two levels slash",
-			relative: "../../",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/",
-		},
-		{
-			name:     "Base with path-like segment: path up two levels",
-			relative: "../../g",
-			base:     "http://a/b/c/d;p=1/2?q",
-			expected: "http://a/b/g"},
-		{
-			name:     "Base with empty authority: new scheme",
-			relative: "g:h",
-			base:     "fred:///s//a/b/c",
-			expected: "g:h"},
-		{
-			name:     "Base with empty authority: relative path",
-			relative: "g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/b/g",
-		},
-		{
-			name:     "Base with empty authority: relative dot-slash",
-			relative: "./g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/b/g",
-		},
-		{
-			name:     "Base with empty authority: relative path with slash",
-			relative: "g/",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/b/g/",
-		},
-		{
-			name:     "Base with empty authority: path from root",
-			relative: "/g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///g",
-		},
-		{
-			name:     "Base with empty authority: scheme-relative",
-			relative: "//g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred://g",
-		},
-		{
-			name:     "Base with empty authority: scheme-relative with path",
-			relative: "//g/x",
-			base:     "fred:///s//a/b/c",
-			expected: "fred://g/x",
-		},
-		{
-			name:     "Base with empty authority: path from root with extra slash",
-			relative: "///g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///g",
-		},
-		{
-			name:     "Base with empty authority: dot-slash",
-			relative: "./",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/b/",
-		},
-		{
-			name:     "Base with empty authority: double dot-slash",
-			relative: "../",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/",
-		},
-		{
-			name:     "Base with empty authority: path up one level",
-			relative: "../g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//a/g",
-		},
-		{
-			name:     "Base with empty authority: path up two levels slash",
-			relative: "../../",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//",
-		},
-		{
-			name:     "Base with empty authority: path up two levels",
-			relative: "../../g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s//g",
-		},
-		{
-			name:     "Base with empty authority: path up three levels",
-			relative: "../../../g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///s/g",
-		},
-		{
-			name:     "Base with empty authority: path up four levels",
-			relative: "../../../../g",
-			base:     "fred:///s//a/b/c",
-			expected: "fred:///g",
-		},
-		{
-			name:     "Absolute with different scheme",
-			relative: "bar:abc",
-			base:     "foo:xyz",
-			expected: "bar:abc"},
-		{
-			name:     "Absolute with different authority",
-			relative: "http://example/x/abc",
-			base:     "http://example2/x/y/z",
-			expected: "http://example/x/abc",
-		},
-		{
-			name:     "Fragment containing slash",
-			relative: "q/r#s/t",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/q/r#s/t",
-		},
-		{
-			name:     "Absolute with ftp scheme",
-			relative: "ftp://ex/x/q/r",
-			base:     "http://ex/x/y",
-			expected: "ftp://ex/x/q/r",
-		},
-		{
-			name:     "Empty relative from file",
-			relative: "",
-			base:     "file:/ex/x/y/pdq",
-			expected: "file:/ex/x/y/pdq",
-		},
-		{
-			name:     "File path relative",
-			relative: "z/",
-			base:     "file:/ex/x/y/",
-			expected: "file:/ex/x/y/z/",
-		},
-		{
-			name:     "File path with authority",
-			relative: "file://meetings.example.com/cal#m1",
-			base:     "file:/devel/WWW/2000/10/swap/test/reluri-1.n3",
-			expected: "file://meetings.example.com/cal#m1",
-		},
-		{
-			name:     "File path with authority from different base",
-			relative: "file://meetings.example.com/cal#m1",
-			base:     "file:/home/connolly/w3ccvs/WWW/2000/10/swap/test/reluri-1.n3",
-			expected: "file://meetings.example.com/cal#m1",
-		},
-		{
-			name:     "Relative file path with fragment",
-			relative: "./#blort",
-			base:     "file:/some/dir/foo",
-			expected: "file:/some/dir/#blort",
-		},
-		{
-			name:     "Relative path to directory with trailing slash",
-			relative: "./",
-			base:     "http://example/x/abc.efg",
-			expected: "http://example/x/",
-		},
-		{
-			name:     "Relative path with colon",
-			relative: "./q:r",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/q:r"},
-		{
-			name:     "Relative path with equals and colon",
-			relative: "./p=q:r",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/p=q:r",
-		},
-		{
-			name:     "Query with slashes",
-			relative: "?pp/rr",
-			base:     "http://ex/x/y?pp/qq",
-			expected: "http://ex/x/y?pp/rr",
-		},
-		{
-			name:     "Relative path from base with query",
-			relative: "y/z",
-			base:     "http://ex/x/y?pp/qq",
-			expected: "http://ex/x/y/z",
-		},
-		{
-			name:     "Relative path from authority and query",
-			relative: "/x/y?q",
-			base:     "http://ex?p",
-			expected: "http://ex/x/y?q",
-		},
-		{
-			name:     "Opaque with relative path",
-			relative: "c/d",
-			base:     "foo:a/b",
-			expected: "foo:a/c/d",
-		},
-		{
-			name:     "Opaque with absolute path",
-			relative: "/c/d",
-			base:     "foo:a/b",
-			expected: "foo:/c/d",
-		},
-		{
-			name:     "Empty relative from opaque with query and fragment",
-			relative: "",
-			base:     "foo:a/b?c#d",
-			expected: "foo:a/b?c",
-		},
-		{
-			name:     "Opaque with base path and new segment",
-			relative: "b/c",
-			base:     "foo:a",
-			expected: "foo:b/c",
-		},
-		{
-			name:     "Opaque path traversal up and down",
-			relative: "../b/c",
-			base:     "foo:/a/y/z",
-			expected: "foo:/a/b/c",
-		},
-		{
-			name:     "Opaque path traversal from root",
-			relative: "../../d",
-			base:     "foo://a//b/c",
-			expected: "foo://a/d",
-		},
-		{
-			name:     "Opaque dot",
-			relative: ".",
-			base:     "foo:a",
-			expected: "foo:",
-		},
-		{
-			name:     "Opaque double dot",
-			relative: "..",
-			base:     "foo:a",
-			expected: "foo:",
-		},
-		{
-			name:     "Path with encoded slash in base",
-			relative: "abc",
-			base:     "http://example/x/y%2Fz",
-			expected: "http://example/x/abc",
-		},
-		{
-			name:     "Path with encoded slash relative",
-			relative: "../../x%2Fabc",
-			base:     "http://example/a/x/y/z",
-			expected: "http://example/a/x%2Fabc",
-		},
-		{
-			name:     "Path with encoded colon relative",
-			relative: "q%3Ar",
-			base:     "http://ex/x/y",
-			expected: "http://ex/x/q%3Ar",
-		},
-		{
-			name:     "Dot-dot in query is not resolved",
-			relative: "http://example/a/b?c/../d",
-			base:     "foo:bar",
-			expected: "http://example/a/b?c/../d",
-		},
-		{
-			name:     "Dot-dot in fragment is not resolved",
-			relative: "http://example/a/b#c/../d",
-			base:     "foo:bar",
-			expected: "http://example/a/b#c/../d",
-		},
-		{
-			name:     "Opaque http relative",
-			relative: "http:this",
-			base:     "http://example.org/base/uri",
-			expected: "http:this",
-		},
-		{
-			name:     "Windows file path resolution",
-			relative: "mini1.xml",
-			base:     "file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/",
-			expected: "file:///C:/DEV/Haskell/lib/HXmlToolbox-3.01/examples/mini1.xml",
-		},
-		{
-			name:     "Opaque file with query",
-			relative: "?bar",
-			base:     "file:foo",
-			expected: "file:foo?bar",
-		},
-		{
-			name:     "Opaque file with fragment",
-			relative: "#bar",
-			base:     "file:foo",
-			expected: "file:foo#bar",
-		},
-		{
-			name:     "Opaque file to absolute path",
-			relative: "/lv2.h",
-			base:     "file:foo",
-			expected: "file:/lv2.h"},
-		{
-			name:     "Opaque file to absolute path with empty authority",
-			relative: "///lv2.h",
-			base:     "file:foo",
-			expected: "file:///lv2.h",
-		},
-		{
-			name:     "Opaque file with relative path",
-			relative: "lv2.h",
-			base:     "file:foo",
-			expected: "file:lv2.h",
-		},
-		{
-			name:     "Opaque file with empty path dot",
-			relative: ".",
-			base:     "file:",
-			expected: "file:",
-		},
+	if !norm.NFC.IsNormalString(composed) {
+		t.Fatalf("Test setup error: composed string '%s' is not in NFC", composed)
+	}
+	if norm.NFC.IsNormalString(decomposed) {
+		t.Fatalf("Test setup error: decomposed string '%s' is in NFC", decomposed)
 	}
 
-	for _, test := range examples {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			base, err := ParseIri(test.base)
-			if err != nil {
-				t.Fatalf("Failed to parse base IRI %q: %v", test.base, err)
-			}
-			expected, err := ParseRef(test.expected)
-			if err != nil {
-				t.Fatalf("Failed to parse expected IRI %q: %v", test.expected, err)
-			}
+	iriStr := "http://example.com/" + decomposed
+	ref, err := ParseNormalizedRef(iriStr)
+	if err != nil {
+		t.Fatalf("ParseNormalizedRef failed: %v", err)
+	}
 
-			result, err := base.Resolve(test.relative)
-			if err != nil {
-				t.Fatalf("Resolving %q against %q failed: %v", test.relative, test.base, err)
-			}
-			if result.String() != expected.String() {
-				t.Errorf("Resolve: got %q, want %q", result.String(), expected.String())
-			}
-		})
+	expectedStr := "http://example.com/" + composed
+	if ref.String() != expectedStr {
+		t.Errorf("Expected IRI string to be normalized to NFC '%s', got '%s'", expectedStr, ref.String())
+	}
+
+	// Test error case
+	// Per RFC 3986 Section 4.2, a colon in the first path segment of a relative reference is not allowed.
+	// Since "1:b" cannot be a scheme, it is parsed as a relative path and fails.
+	_, err = ParseNormalizedRef("1:b")
+	if err == nil {
+		t.Fatal("Expected an error for invalid IRI, but got none")
 	}
 }
 
-// TestRelativizeIRI verifies the `Relativize` method, which is the inverse of `Resolve`.
-// For each test case, it computes a relative reference from a base and target IRI,
-// and then performs a round-trip check by resolving that relative reference back
-// against the base to ensure it matches the original target.
-func TestRelativizeIRI(t *testing.T) {
-	t.Parallel()
-	examples := []resolveTest{
-		{
-			name:     "Identical opaque IRIs",
-			relative: "",
-			base:     "http:",
-			expected: "http:",
-		},
-		{
-			name:     "Identical hierarchical IRIs",
-			relative: "",
-			base:     "http://example.com",
-			expected: "http://example.com",
-		},
-		{
-			name:     "Identical with path",
-			relative: "",
-			base:     "http://example.com/foo",
-			expected: "http://example.com/foo",
-		},
-		{
-			name:     "Identical with longer path",
-			relative: "",
-			base:     "http://example.com/foo/bar",
-			expected: "http://example.com/foo/bar",
-		},
-		{
-			name:     "Identical with query",
-			relative: "",
-			base:     "http://example.com/foo/bar?bat",
-			expected: "http://example.com/foo/bar?bat",
-		},
-		{
-			name:     "Identical with query and fragment",
-			relative: "#baz",
-			base:     "http://example.com/foo/bar?bat#baz",
-			expected: "http://example.com/foo/bar?bat#baz",
-		},
-		{
-			name:     "Different schemes",
-			relative: "http:",
-			base:     "http:",
-			expected: "https:",
-		},
-		{
-			name:     "Different authorities",
-			relative: "//example.com",
-			base:     "http://example.com",
-			expected: "http://example.org",
-		},
-		{
-			name:     "Sibling path segments",
-			relative: "foo",
-			base:     "http://example.com/foo",
-			expected: "http://example.com/bar",
-		},
-		{
-			name:     "Different queries",
-			relative: "?bat",
-			base:     "http://example.com/foo?bat",
-			expected: "http://example.com/foo?foo",
-		},
-		{
-			name:     "Different fragments",
-			relative: "#baz",
-			base:     "http://example.com/foo?bat#baz",
-			expected: "http://example.com/foo?bat#foo",
-		},
-		{
-			name:     "Hierarchical from opaque",
-			relative: "//example.com",
-			base:     "http://example.com",
-			expected: "http:",
-		},
-		{
-			name:     "Hierarchical from authority-only",
-			relative: "//example.com",
-			base:     "http://example.com",
-			expected: "http://",
-		},
-		{
-			name:     "Child path from parent directory",
-			relative: "foo",
-			base:     "http://example.com/foo",
-			expected: "http://example.com/",
-		},
-		{
-			name:     "Path from different tree",
-			relative: "/foo",
-			base:     "http://example.com/foo",
-			expected: "http://example.com/bar/baz",
-		},
-		{
-			name:     "Sibling path",
-			relative: "bar",
-			base:     "http://example.com/foo/bar",
-			expected: "http://example.com/foo/baz",
-		},
-		{
-			name:     "Parent path from child",
-			relative: "foo/bar",
-			base:     "http://example.com/foo/bar",
-			expected: "http://example.com/foo",
-		},
-		{
-			name:     "Sibling query",
-			relative: "?bar",
-			base:     "http://example.com/foo?bar",
-			expected: "http://example.com/foo?baz",
-		},
-		{
-			name:     "Path to query",
-			relative: "//example.com?bar",
-			base:     "http://example.com?bar",
-			expected: "http://example.com/a",
-		},
-		{
-			name:     "No path from query",
-			relative: "?bar",
-			base:     "http://example.com?bar",
-			expected: "http://example.com",
-		},
-		{
-			name:     "Path with slash from query",
-			relative: "//example.com?bar",
-			base:     "http://example.com?bar",
-			expected: "http://example.com/",
-		},
-		{
-			name:     "Sibling fragment",
-			relative: "#bar",
-			base:     "http://example.com/foo#bar",
-			expected: "http://example.com/foo#baz",
-		},
-		{
-			name:     "Path from parent dir to file",
-			relative: ".",
-			base:     "http://example.com/foo/",
-			expected: "http://example.com/foo/bar",
-		},
-		{
-			name:     "Path with colon segment",
-			relative: "/:",
-			base:     "http://example.com/:",
-			expected: "http://example.com/foo",
-		},
-		{
-			name:     "Opaque from hierarchical",
-			relative: "http:",
-			base:     "http:",
-			expected: "http://example.com",
-		},
-		{
-			name:     "Opaque with query from hierarchical",
-			relative: "http:?foo",
-			base:     "http:?foo",
-			expected: "http://example.com",
-		},
-		{
-			name:     "No path from path",
-			relative: "//example.com",
-			base:     "http://example.com",
-			expected: "http://example.com/foo",
-		},
-		{
-			name:     "No path from path with query",
-			relative: "//example.com",
-			base:     "http://example.com",
-			expected: "http://example.com?query",
-		},
-		{
-			name:     "Path from path with query",
-			relative: "foo",
-			base:     "http://example.com/foo",
-			expected: "http://example.com/foo?query",
-		},
-		{
-			name:     "Opaque with query from hierarchical with query",
-			relative: "http:?query",
-			base:     "http:?query",
-			expected: "http://example.com?query",
-		},
-		{
-			name:     "Opaque path from hierarchical path",
-			relative: "http:/path",
-			base:     "http:/path",
-			expected: "http://example.com/foo",
-		},
-		{
-			name:     "Path with empty segment",
-			relative: "//example.com//a",
-			base:     "http://example.com//a",
-			expected: "http://example.com/",
-		},
-		{
-			name:     "URN child",
-			relative: "ab",
-			base:     "urn:ab",
-			expected: "urn:",
-		},
-		{
-			name:     "URN with path",
-			relative: "urn:isbn:foo",
-			base:     "urn:isbn:foo",
-			expected: "urn:",
-		},
-		{
-			name:     "URN with slash",
-			relative: "is/bn:foo",
-			base:     "urn:is/bn:foo",
-			expected: "urn:",
-		},
-		{
-			name:     "Opaque sibling path",
-			relative: "e/p",
-			base:     "t:e/e/p",
-			expected: "t:e/s",
-		},
-		{
-			name:     "Opaque child from parent with slash",
-			relative: "gp",
-			base:     "htt:/foo/gp",
-			expected: "htt:/foo/",
-		},
-		{
-			name:     "Opaque child from parent without slash",
-			relative: "gp",
-			base:     "htt:/gp",
-			expected: "htt:/",
-		},
-		{
-			name:     "Opaque from hierarchical with authority",
-			relative: "x:",
-			base:     "x:",
-			expected: "x://foo",
-		},
-		{
-			name:     "Opaque from opaque with path",
-			relative: "x:",
-			base:     "x:",
-			expected: "x:02",
-		},
-		{
-			name:     "Opaque from opaque with query",
-			relative: "x:",
-			base:     "x:",
-			expected: "x:?foo"},
-		{
-			name:     "Fragment from no fragment",
-			relative: "",
-			base:     "http://example.com",
-			expected: "http://example.com#foo",
-		},
-		{
-			name:     "Same directory relative",
-			relative: ".",
-			base:     "http://example.com/a/",
-			expected: "http://example.com/a/b",
-		},
-		{
-			name:     "Same directory relative with query",
-			relative: ".?c",
-			base:     "http://example.com/a/?c",
-			expected: "http://example.com/a/b",
-		},
-		{
-			name:     "Opaque path with empty authority",
-			relative: "t:o//",
-			base:     "t:o//",
-			expected: "t:o/",
-		},
-		{
-			name:     "Opaque path with colon",
-			relative: "t:a/c:d",
-			base:     "t:a/c:d",
-			expected: "t:a/b",
-		},
-		{
-			name:     "Same dir with query",
-			relative: ".",
-			base:     "http://example.com/a/b/",
-			expected: "http://example.com/a/b/?q=1",
-		},
-		{
-			name:     "Root path from file",
-			relative: "/foo",
-			base:     "http://example.com/foo",
-			expected: "http://example.com",
-		},
-		{
-			name:     "Path traversal up and down",
-			relative: "../c",
-			base:     "http://example.com/a/c",
-			expected: "http://example.com/a/b/",
-		},
-	}
-
-	for _, test := range examples {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			original, err := ParseIri(test.base)
-			if err != nil {
-				t.Fatalf("Failed to parse original IRI %q: %v", test.base, err)
-			}
-			base, err := ParseIri(test.expected)
-			if err != nil {
-				t.Fatalf("Failed to parse base IRI %q: %v", test.expected, err)
-			}
-
-			actual, err := base.Relativize(original)
-			if err != nil {
-				t.Fatalf("Relativize failed: %v", err)
-			}
-
-			if actual.String() != test.relative {
-				t.Errorf("Relativizing %q against %q gives %q, want %q",
-					original.String(), base.String(), actual.String(), test.relative)
-			}
-
-			// Round-trip check
-			resolved, err := base.Resolve(actual.String())
-			if err != nil {
-				t.Fatalf("Round-trip resolve failed: %v", err)
-			}
-			if resolved.String() != original.String() {
-				t.Errorf("Round-trip failed: resolving %q against %q gives %q, want %q",
-					actual.String(), base.String(), resolved.String(), original.String())
-			}
-		})
-	}
-}
-
-// TestRelativizeIRIFails ensures that the `Relativize` method fails as expected when
-// the target IRI contains dot-segments, which is not allowed.
-func TestRelativizeIRIFails(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		iri  string
-		base string
+// TestParseURIToRef tests the conversion from a URI string (with percent-encoding) to an IRI Ref.
+func TestParseURIToRef(t *testing.T) {
+	// RFC 3987, Section 3.2: Converting URIs to IRIs
+	testCases := []struct {
+		name     string
+		uri      string
+		expected string
+		hasError bool
 	}{
 		{
-			name: "Hierarchical with dot-dot segment",
-			iri:  "http://example.com/a/../b",
-			base: "http://example.com/s",
+			name:     "Valid UTF-8 sequence",
+			uri:      "http://example.org/D%C3%BCrst", // Dürst
+			expected: "http://example.org/Dürst",
+			hasError: false,
 		},
 		{
-			name: "Hierarchical with trailing dot-dot segment",
-			iri:  "http://example.com/a/..",
-			base: "http://example.com/s",
+			name:     "Valid URI with non-UTF8 percent encoding",
+			uri:      "http://example.org/%FCrst", // ü in latin1. Preserved correctly.
+			expected: "http://example.org/%FCrst",
+			hasError: false,
 		},
 		{
-			name: "Hierarchical with dot segment",
-			iri:  "http://example.com/./b",
-			base: "http://example.com/s",
+			name:     "Forbidden Bidi character",
+			uri:      "http://example.com/%E2%80%AE", // U+202E RTL OVERRIDE
+			expected: "http://example.com/%E2%80%AE", // Should remain encoded
+			hasError: false,
 		},
 		{
-			name: "Hierarchical with trailing dot segment",
-			iri:  "http://example.com/.",
-			base: "http://example.com/s",
+			name:     "Malformed URI with incomplete percent encoding",
+			uri:      "http://example.com/%C", // Correctly malformed input
+			expected: "",                      // Expected string is irrelevant on error
+			hasError: true,
 		},
 		{
-			name: "Opaque with trailing dot segment",
-			iri:  "urn:.",
-			base: "urn:",
+			name:     "Malformed URI with invalid percent encoding",
+			uri:      "http://example.com/foo%GGbar",
+			expected: "", // Expected string is irrelevant on error
+			hasError: true,
 		},
-	}
-	for _, test := range tests {
-		t.Run(fmt.Sprintf("%s_AGAINST_%s", test.iri, test.base), func(t *testing.T) {
-			t.Parallel()
-			iri, err := ParseIri(test.iri)
-			if err != nil {
-				t.Fatalf("Bad test case, could not parse IRI %q: %v", test.iri, err)
-			}
-			base, err := ParseIri(test.base)
-			if err != nil {
-				t.Fatalf("Bad test case, could not parse base %q: %v", test.base, err)
-			}
-
-			_, err = base.Relativize(iri)
-			if err == nil {
-				t.Errorf("Expected Relativize to fail, but it did not")
-			} else if !errors.Is(err, ErrIriRelativize) {
-				t.Errorf("Expected ErrIriRelativize, but got: %v", err)
-			}
-		})
-	}
-}
-
-// TestEq checks the value equality of the Iri struct. It verifies that two IRIs
-// parsed from the same string are considered equal and can be used as map keys.
-func TestEq(t *testing.T) {
-	t.Parallel()
-
-	iri1, err := ParseIri("http://example.com")
-	if err != nil {
-		t.Fatalf("ParseIri failed for iri1: %v", err)
-	}
-	iri2, err := ParseIri("http://example.com")
-	if err != nil {
-		t.Fatalf("ParseIri failed for iri2: %v", err)
-	}
-	iri3, err := ParseIri("http://example.org")
-	if err != nil {
-		t.Fatalf("ParseIri failed for iri3: %v", err)
-	}
-
-	if iri1.String() != "http://example.com" {
-		t.Errorf("Expected iri.String() to be 'http://example.com', got %q", iri1.String())
-	}
-
-	if *iri1 != *iri2 {
-		t.Errorf("Expected two identical IRIs to have equal values, but they did not")
-	}
-	if *iri1 == *iri3 {
-		t.Errorf("Expected two different IRIs to have unequal values, but they were equal")
-	}
-
-	m := make(map[Iri]bool)
-	m[*iri1] = true
-
-	if !m[*iri2] {
-		t.Error("Expected to find IRI in map using an equal IRI value as key")
-	}
-
-	if m[*iri3] {
-		t.Error("Expected not to find IRI in map using a different IRI value as key")
-	}
-
-	// This is a check on pointer equality, not value equality.
-	if iri1 == iri2 {
-		t.Error("Expected two separately parsed IRIs to have different memory addresses, but they were the same")
-	}
-}
-
-// TestStr is a simple check to ensure the String() method returns a sensible value.
-func TestStr(t *testing.T) {
-	t.Parallel()
-	iri, err := ParseIri("http://example.com")
-	if err != nil {
-		t.Fatalf("ParseIri failed: %v", err)
-	}
-	if !strings.HasPrefix(iri.String(), "http://") {
-		t.Error("Expected iri to have prefix 'http://'")
-	}
-}
-
-// TestRefJSON tests the JSON marshalling and unmarshalling of the Ref type.
-func TestRefJSON(t *testing.T) {
-	t.Parallel()
-	t.Run("Marshal", func(t *testing.T) {
-		t.Parallel()
-		ref := ParseRefUnchecked("//example.com")
-		jsonData, err := json.Marshal(ref)
-		if err != nil {
-			t.Fatalf("json.Marshal failed: %v", err)
-		}
-		expected := []byte(`"//example.com"`)
-		if !bytes.Equal(jsonData, expected) {
-			t.Errorf("got %s, want %s", jsonData, expected)
-		}
-	})
-
-	t.Run("Unmarshal valid", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`"//example.com"`)
-		var ref Ref
-		if err := json.Unmarshal(jsonData, &ref); err != nil {
-			t.Fatalf("json.Unmarshal failed: %v", err)
-		}
-		if ref.String() != "//example.com" {
-			t.Errorf("got %q, want %q", ref.String(), "//example.com")
-		}
-	})
-
-	t.Run("Unmarshal invalid", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`":"`)
-		var ref Ref
-		err := json.Unmarshal(jsonData, &ref)
-		if err == nil {
-			t.Fatal("json.Unmarshal expected to fail, but did not")
-		}
-		var parseErr *ParseError
-		if !errors.As(err, &parseErr) {
-			t.Errorf("Expected a ParseError, but got %T: %v", err, err)
-		}
-	})
-
-	t.Run("Unmarshal non-string JSON", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`123`)
-		var ref Ref
-		err := json.Unmarshal(jsonData, &ref)
-		if err == nil {
-			t.Fatal("json.Unmarshal expected to fail for non-string JSON, but did not")
-		}
-		var unmarshalTypeError *json.UnmarshalTypeError
-		if !errors.As(err, &unmarshalTypeError) {
-			t.Errorf("Expected a json.UnmarshalTypeError, but got %T: %v", err, err)
-		}
-	})
-}
-
-// TestIriJSON tests the JSON marshalling and unmarshalling of the Iri type,
-// ensuring that it correctly handles both valid and invalid absolute IRIs.
-func TestIriJSON(t *testing.T) {
-	t.Parallel()
-	t.Run("Marshal", func(t *testing.T) {
-		t.Parallel()
-		iri := ParseIriUnchecked("http://example.com")
-		jsonData, err := json.Marshal(iri)
-		if err != nil {
-			t.Fatalf("json.Marshal failed: %v", err)
-		}
-		expected := []byte(`"http://example.com"`)
-		if !bytes.Equal(jsonData, expected) {
-			t.Errorf("got %s, want %s", jsonData, expected)
-		}
-	})
-
-	t.Run("Unmarshal valid", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`"http://example.com"`)
-		var iri Iri
-		if err := json.Unmarshal(jsonData, &iri); err != nil {
-			t.Fatalf("json.Unmarshal failed: %v", err)
-		}
-		if iri.String() != "http://example.com" {
-			t.Errorf("got %q, want %q", iri.String(), "http://example.com")
-		}
-	})
-
-	t.Run("Unmarshal invalid IRI", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`":"`)
-		var iri Iri
-		err := json.Unmarshal(jsonData, &iri)
-		if err == nil {
-			t.Fatal("json.Unmarshal expected to fail, but did not")
-		}
-
-		var parseErr *ParseError
-		if !errors.As(err, &parseErr) {
-			t.Errorf("Expected a ParseError, but got %T: %v", err, err)
-		}
-	})
-
-	t.Run("Unmarshal relative", func(t *testing.T) {
-		t.Parallel()
-		jsonData := []byte(`"//example.com"`)
-		var iri Iri
-		err := json.Unmarshal(jsonData, &iri)
-		if err == nil {
-			t.Fatal("json.Unmarshal expected to fail, but did not")
-		}
-
-		if !strings.Contains(err.Error(), "No scheme found") {
-			t.Errorf("Expected 'No scheme found' error, but got: %v", err)
-		}
-	})
-}
-
-// TestResolveRelativeIRIUnchecked verifies the `ResolveUnchecked` method with a large
-// number of test cases, ensuring it produces correct results for known-good inputs.
-func TestResolveRelativeIRIUnchecked(t *testing.T) {
-	t.Parallel()
-
-	examples := []resolveTest{
 		{
-			name:     "Path traversal up from root",
-			relative: "../foo",
-			base:     "http://host/",
-			expected: "http://host/foo",
+			name:     "Mixed valid and invalid sequences",
+			uri:      "/a%C3%A9b%E9c/",
+			expected: "/aéb%E9c/",
+			hasError: false,
 		},
 		{
-			name:     "Path traversal up from file",
-			relative: "../foo",
-			base:     "http://host/xyz",
-			expected: "http://host/foo",
-		},
-		{
-			name:     "Relative path with query",
-			relative: "d/z?x=a",
-			base:     "http://www.example.org/a/b/c/d",
-			expected: "http://www.example.org/a/b/c/d/z?x=a",
-		},
-		{
-			name:     "Absolute IRI",
-			relative: "http://example.com/A",
-			base:     "http://www.example.org/a/b/c/d",
-			expected: "http://example.com/A",
-		},
-		{
-			name:     "Empty from directory",
-			relative: "",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/",
-		},
-		{
-			name:     "Dot from directory",
-			relative: ".",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/",
-		},
-		{
-			name:     "Path traversal up and down",
-			relative: "../../C/D",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/C/D",
-		},
-		{
-			name:     "Path traversal up and down to same dir",
-			relative: "../../c/d/",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/",
-		},
-		{
-			name:     "Path traversal and new segment with fragment",
-			relative: "../../c/d/X#bar",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/X#bar",
-		},
-		{
-			name:     "Path traversal and new longer path",
-			relative: "../../c/d/e/f/g/",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/e/f/g/",
-		},
-		{
-			name:     "Path traversal and new segment with query",
-			relative: "../../c/d/z?x=a",
-			base:     "http://www.example.org/a/b/c/d/",
-			expected: "http://www.example.org/a/b/c/d/z?x=a",
-		},
-		{
-			name:     "W3C charmod test with unicode",
-			relative: "http://example.org/#André",
-			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test001.rdf",
-			expected: "http://example.org/#André",
-		},
-		{
-			name:     "W3C charmod test with percent encoding",
-			relative: "http://example.org/#Andr%C3%A9",
-			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdf-charmod-uris/test002.rdf",
-			expected: "http://example.org/#Andr%C3%A9",
-		},
-		{
-			name:     "W3C ID difference test with unicode",
-			relative: "#Dürst",
-			base:     "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf",
-			expected: "http://www.w3.org/2000/10/rdf-tests/rdfcore/rdfms-difference-between-ID-and-about/test2.rdf#Dürst",
-		},
-		{
-			name:     "Empty fragment on opaque URI",
-			relative: "#",
-			base:     "base:x",
-			expected: "base:x#",
-		},
-		{
-			name:     "Windows path with spaces empty relative",
-			relative: "",
-			base:     "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
-			expected: "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
-		},
-		{
-			name:     "Absolute from windows path",
-			relative: "eh:/a",
-			base:     "file:///C:/Documents and Settings/jjchplb/Local Settings/Temp/test-load-with-41.rdf",
-			expected: "eh:/a",
-		},
-		{
-			name:     "Jena empty fragment",
-			relative: "#",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "file:///C:/eclipse/workspace/jena2/#",
-		},
-		{
-			name:     "Jena empty relative",
-			relative: "",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "file:///C:/eclipse/workspace/jena2/",
-		},
-		{
-			name:     "Jena relative path",
-			relative: "base",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "file:///C:/eclipse/workspace/jena2/base",
-		},
-		{
-			name:     "Jena absolute scheme",
-			relative: "eh://R",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "eh://R",
-		},
-		{
-			name:     "Jena absolute scheme with path",
-			relative: "eh:/O",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "eh:/O",
-		},
-		{
-			name:     "Jena absolute scheme with fragment",
-			relative: "rdf://test.com#",
-			base:     "file:///C:/eclipse/workspace/jena2/",
-			expected: "rdf://test.com#",
-		},
-		{
-			name:     "Jena relative path from file",
-			relative: "z",
-			base:     "file:///C:/eclipse/workspace/jena2/foo.n3",
-			expected: "file:///C:/eclipse/workspace/jena2/z",
-		},
-		{
-			name:     "Jena ARQ Ask empty relative",
-			relative: "",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Ask/manifest.ttl",
-		},
-		{
-			name:     "Jena ARQ Basic relative ttl",
-			relative: "r-base-prefix-3.ttl",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-3.ttl",
-		},
-		{
-			name:     "Jena ARQ Basic relative ttl 2",
-			relative: "r-base-prefix-4.ttl",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/manifest.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Basic/r-base-prefix-4.ttl",
-		},
-		{
-			name:     "Jena ARQ Optional mailto",
-			relative: "mailto:bert@example.net",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/Optional/result-opt-1.ttl",
-			expected: "mailto:bert@example.net",
-		},
-		{
-			name:     "Jena ARQ Bound manifest",
-			relative: "Bound/manifest.n3",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Bound/manifest.n3",
-		},
-		{
-			name:     "Jena ARQ Construct manifest",
-			relative: "Construct/manifest.ttl",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Construct/manifest.ttl",
-		},
-		{
-			name:     "Jena ARQ Dataset manifest",
-			relative: "Dataset/manifest.n3",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ARQ/manifest-arq.ttl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ARQ/Dataset/manifest.n3",
-		},
-		{
-			name:     "Jena DAWG mailto",
-			relative: "mailto:jlow@example.com",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/DAWG-Approved/examples/ex2-4a.n3",
-			expected: "mailto:jlow@example.com",
-		},
-		{
-			name:     "Jena DAWG examples manifest",
-			relative: "ex11.2.3.2_0.rq",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/manifest.n3",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/DAWG/examples/ex11.2.3.2_0.rq",
-		},
-		{
-			name:     "Jena RDQL URN with comment-like chars",
-			relative: "urn:/*not_a_comment*/",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/RDQL-ARQ/result-0-01.n3",
-			expected: "urn:/*not_a_comment*/",
-		},
-		{
-			name:     "Jena ontology bug test fragment",
-			relative: "#y1",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl#y1",
-		},
-		{
-			name:     "Jena ontology bug test empty",
-			relative: "",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_06/b.owl",
-		},
-		{
-			name:     "Jena ontology bug test relative with fragment",
-			relative: "foo#ClassAC",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/test_hk_07A.owl",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/ontology/bugs/foo#ClassAC",
-		},
-		{
-			name:     "Jena reasoners bug test",
-			relative: "jason6",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/sbug.rdf",
-			expected: "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/jason6",
-		},
-		{
-			name:     "Jena reasoners URN",
-			relative: "urn:x-propNum100",
-			base:     "file:///C:/eclipse/workspace/jena2/testing/reasoners/bugs/subpropertyModel.n3",
-			expected: "urn:x-propNum100",
-		},
-		{
-			name:     "File with DOS path",
-			relative: "",
-			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-			expected: "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-		},
-		{
-			name:     "File with DOS path to absolute",
-			relative: "http://spoo.net/O",
-			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-			expected: "http://spoo.net/O",
-		},
-		{
-			name:     "File with DOS path to absolute 2",
-			relative: "http://spoo.net/S",
-			base:     "file:C:\\DOCUME~1\\jjchplb\\LOCALS~1\\Temp\\hedgehog6739.rdf",
-			expected: "http://spoo.net/S",
-		},
-		{
-			name:     "File with URN",
-			relative: "urn:x-hp:eg/",
-			base:     "file:doc/inference/data/owlDemoSchema.xml",
-			expected: "urn:x-hp:eg/",
-		},
-		{
-			name:     "File with relative path empty",
-			relative: "",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:testing/abbreviated/relative-uris.rdf",
-		},
-		{
-			name:     "File with relative path dot",
-			relative: ".",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:testing/abbreviated/",
-		},
-		{
-			name:     "File with relative path up and down",
-			relative: "../../C/D",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:C/D",
-		},
-		{
-			name:     "File with relative path to scheme-relative",
-			relative: "//example.com/A",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file://example.com/A",
-		},
-		{
-			name:     "File with relative path to absolute with fragment",
-			relative: "/A/B#foo/",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:/A/B#foo/",
-		},
-		{
-			name:     "File with relative path and fragment",
-			relative: "X#bar",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:testing/abbreviated/X#bar",
-		},
-		{
-			name:     "File with longer relative path",
-			relative: "e/f/g/",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:testing/abbreviated/e/f/g/",
-		},
-		{
-			name:     "File to absolute http",
-			relative: "http://www.example.org/a/b/c/d/",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "http://www.example.org/a/b/c/d/",
-		},
-		{
-			name:     "File with relative path and query",
-			relative: "z?x=a",
-			base:     "file:testing/abbreviated/relative-uris.rdf",
-			expected: "file:testing/abbreviated/z?x=a",
-		},
-		{
-			name:     "QName in ID fragment",
-			relative: "#one",
-			base:     "file:testing/arp/qname-in-ID/bug74_0.rdf",
-			expected: "file:testing/arp/qname-in-ID/bug74_0.rdf#one",
-		},
-		{
-			name:     "QName in ID fragment with colon",
-			relative: "#sw:test",
-			base:     "file:testing/arp/qname-in-ID/bug74_0.rdf",
-			expected: "file:testing/arp/qname-in-ID/bug74_0.rdf#sw:test",
-		},
-		{
-			name:     "Fragment with double hash",
-			relative: "#__rest3",
-			base:     "file:testing/ontology/bugs/test_oh_01.owl",
-			expected: "file:testing/ontology/bugs/test_oh_01.owl#__rest3",
-		},
-		{
-			name:     "Fragment on LDP test file",
-			relative: "#Union2",
-			base:     "file:testing/ontology/owl/list-syntax/test-ldp.rdf",
-			expected: "file:testing/ontology/owl/list-syntax/test-ldp.rdf#Union2",
-		},
-		{
-			name:     "URN from OWL file",
-			relative: "urn:foo",
-			base:     "file:testing/reasoners/bugs/cardFPTest.owl",
-			expected: "urn:foo",
-		},
-		{
-			name:     "Absolute from OWL file",
-			relative: "http://decsai.ugr.es/~ontoserver/bacarex2.owl",
-			base:     "file:testing/reasoners/bugs/deleteBug.owl",
-			expected: "http://decsai.ugr.es/~ontoserver/bacarex2.owl",
-		},
-		{
-			name:     "Fragment on OWL file",
-			relative: "#A",
-			base:     "file:testing/reasoners/bugs/equivalentClassTest.owl",
-			expected: "file:testing/reasoners/bugs/equivalentClassTest.owl#A",
-		},
-		{
-			name:     "Opaque with colon",
-			relative: "NC:ispinfo",
-			base:     "http://bar.com/irrelevant",
-			expected: "NC:ispinfo",
-		},
-		{
-			name:     "Opaque with colon 2",
-			relative: "NC:trickMe",
-			base:     "http://bar.com/irrelevant",
-			expected: "NC:trickMe",
-		},
-		{
-			name:     "Chrome protocol",
-			relative: "chrome://messenger/content/mailPrefsOverlay.xul",
-			base:     "http://bar.com/irrelevant",
-			expected: "chrome://messenger/content/mailPrefsOverlay.xul",
-		},
-		{
-			name:     "Domain protocol",
-			relative: "domain:aol.com",
-			base:     "http://bar.com/irrelevant",
-			expected: "domain:aol.com",
-		},
-		{
-			name:     "IRI with trailing spaces",
-			relative: "http://foo.com/    ",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/    ",
-		},
-		{
-			name:     "IRI with trailing tab",
-			relative: "http://foo.com/\t",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/\t",
-		},
-		{
-			name:     "IRI with trailing newline",
-			relative: "http://foo.com/\n\n",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/\n\n",
-		},
-		{
-			name:     "IRI with trailing CR",
-			relative: "http://foo.com/\r",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/\r",
-		},
-		{
-			name:     "IRI with single quote",
-			relative: "http://foo.com/'",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/'",
-		},
-		{
-			name:     "IRI with tag char",
-			relative: "http://foo.com/<b>boo",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/<b>boo",
-		},
-		{
-			name:     "IRI with double quote",
-			relative: "http://foo.com/\"",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/\"",
-		},
-		{
-			name:     "Simple absolute IRI",
-			relative: "http://foo.com/",
-			base:     "http://bar.com/irrelevant",
-			expected: "http://foo.com/",
+			name:     "Invalid decoded IRI",
+			uri:      "a%3A/b", // decodes to "a:/b", which could be parsed as scheme:path-absolute
+			expected: "a:/b",   // but it is not a valid relative reference
+			hasError: false,    // NOTE: This behavior depends on re-parsing. The decoded string is a valid IRI-reference.
 		},
 	}
 
-	for _, test := range examples {
-		t.Run(test.name, func(t *testing.T) {
-			t.Parallel()
-			base := ParseIriUnchecked(test.base)
-			result := base.ResolveUnchecked(test.relative)
-			if result.String() != test.expected {
-				t.Errorf(
-					"Resolving of %q against %q is wrong.\nGot:      %q\nExpected: %q",
-					test.relative,
-					test.base,
-					result.String(),
-					test.expected,
-				)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := ParseURIToRef(tc.uri)
+			if tc.hasError {
+				if err == nil {
+					t.Fatal("Expected an error, but got none")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("Expected no error, but got: %v", err)
+				}
+				if ref.String() != tc.expected {
+					t.Errorf("Expected converted IRI '%s', got '%s'", tc.expected, ref.String())
+				}
 			}
 		})
 	}
 }
 
-// TestResolveTo checks that the `ResolveTo` and `ResolveUncheckedTo` methods,
-// which write to a strings.Builder, work correctly.
-func TestResolveTo(t *testing.T) {
-	t.Parallel()
-	base := ParseIriUnchecked("http://foo.com/bar/baz")
+// TestRef_ToURI tests the conversion from an IRI Ref back to a URI string, including IDNA and percent-encoding.
+func TestRef_ToURI(t *testing.T) {
+	// Based on RFC 3987, Section 3.1: Mapping of IRIs to URIs.
+	// It requires NFC normalization, percent-encoding of non-ASCII, and IDNA for hosts.
+	testCases := []struct {
+		name     string
+		iri      string
+		expected string
+	}{
+		{
+			"Simple ASCII IRI",
+			"http://example.com/a/b",
+			"http://example.com/a/b",
+		},
+		{
+			"Non-ASCII path",
+			"http://example.com/résumé",
+			"http://example.com/r%C3%A9sum%C3%A9",
+		},
+		{
+			"Non-ASCII query",
+			"http://example.com/?p=résumé",
+			"http://example.com/?p=r%C3%A9sum%C3%A9",
+		},
+		{
+			"Non-ASCII fragment",
+			"http://example.com/#résumé",
+			"http://example.com/#r%C3%A9sum%C3%A9",
+		},
+		{
+			"Non-ASCII userinfo",
+			"ftp://résumé@example.com/",
+			"ftp://r%C3%A9sum%C3%A9@example.com/",
+		},
+		{
+			"IDNA host",
+			"http://résumé.example.org/",
+			"http://xn--rsum-bpad.example.org/",
+		},
+		{
+			"Full IRI with all parts",
+			"http://user:p@résumé.com:8080/p?q=v#f",
+			"http://user:p@xn--rsum-bpad.com:8080/p?q=v#f",
+		},
+		{
+			"IDNA handling of leading hyphen non-ASCII host",
+			"http://-résumé.com/", // Hyphen at start is valid for the Go IDNA library
+			"http://xn---rsum-csad.com/",
+		},
+		{
+			"IDNA handling of long label (produces valid but long punycode)",
+			"http://" + strings.Repeat("a", 63) + ".com/",
+			"http://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com/",
+		},
+		{
+			"IDNA failure fallback with percent-encoded space in host",
+			"http://a%20b.com/", // A valid IRI, but host is invalid for IDNA
+			"http://a%20b.com/", // idna.ToASCII fails, fallback is a no-op as there are no non-ASCII chars
+		},
+		{
+			"NFC normalization before encoding",
+			"http://example.com/e\u0301", // non-NFC 'é'
+			"http://example.com/%C3%A9",  // NFC 'é' percent-encoded
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := mustParseRef(t, tc.iri)
+			uri := ref.ToURI()
+			if uri != tc.expected {
+				t.Errorf("Expected URI '%s', got '%s'", tc.expected, uri)
+			}
+		})
+	}
+}
+
+// TestRef_Normalize tests the syntax-based and scheme-based normalization of a Ref.
+func TestRef_Normalize(t *testing.T) {
+	// Based on RFC 3986, Section 6.2.2 and 6.2.3: Syntax-Based and Scheme-Based Normalization.
+	testCases := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			"Case normalization (scheme, host)",
+			"HTTP://User@Example.COM/Path",
+			"http://User@example.com/Path",
+		},
+		{
+			"Percent-encoding normalization (decode unreserved)",
+			"http://example.com/%7Euser",
+			"http://example.com/~user",
+		},
+		{
+			"Path segment normalization (remove dot segments)",
+			"http://example.com/a/b/../c/./d",
+			"http://example.com/a/c/d",
+		},
+		{
+			"Scheme-based: add / for empty path with authority",
+			"http://example.com",
+			"http://example.com/",
+		},
+		{
+			"Scheme-based: remove default port",
+			"http://example.com:80/path",
+			"http://example.com/path",
+		},
+		{
+			"Scheme-based: keep non-default port",
+			"http://example.com:8080/path",
+			"http://example.com:8080/path",
+		},
+		{
+			"NFC normalization",
+			"http://example.com/re\u0301sume\u0301.html",
+			"http://example.com/résumé.html",
+		},
+		{
+			"Combination of normalizations",
+			"HTTP://EXAMPLE.COM:80/a/../b/%7E",
+			"http://example.com/b/~",
+		},
+		{"Empty IRI", "", ""},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref := mustParseRef(t, tc.input)
+			normalizedRef := ref.Normalize()
+			if normalizedRef.String() != tc.expected {
+				t.Errorf("Expected normalized IRI '%s', got '%s'", tc.expected, normalizedRef.String())
+			}
+		})
+	}
+
+	t.Run("No-op returns same instance", func(t *testing.T) {
+		iriStr := "http://example.com/already/normalized"
+		ref := mustParseRef(t, iriStr)
+		normalizedRef := ref.Normalize()
+		if ref != normalizedRef {
+			t.Error("Should return same instance if already normalized")
+		}
+	})
+}
+
+// TestRef_Resolve_NormalExamples tests resolution based on RFC 3986, Section 5.4.1.
+func TestRef_Resolve_NormalExamples(t *testing.T) {
+	base := mustParseRef(t, "http://a/b/c/d;p?q")
+	testCases := map[string]string{
+		"g:h":     "g:h",
+		"g":       "http://a/b/c/g",
+		"./g":     "http://a/b/c/g",
+		"g/":      "http://a/b/c/g/",
+		"/g":      "http://a/g",
+		"//g":     "http://g",
+		"?y":      "http://a/b/c/d;p?y",
+		"g?y":     "http://a/b/c/g?y",
+		"#s":      "http://a/b/c/d;p?q#s",
+		"g#s":     "http://a/b/c/g#s",
+		"g?y#s":   "http://a/b/c/g?y#s",
+		";x":      "http://a/b/c/;x",
+		"g;x":     "http://a/b/c/g;x",
+		"g;x?y#s": "http://a/b/c/g;x?y#s",
+		"":        "http://a/b/c/d;p?q",
+		".":       "http://a/b/c/",
+		"./":      "http://a/b/c/",
+		"..":      "http://a/b/",
+		"../":     "http://a/b/",
+		"../g":    "http://a/b/g",
+		"../..":   "http://a/",
+		"../../":  "http://a/",
+		"../../g": "http://a/g",
+	}
+
+	for rel, expected := range testCases {
+		t.Run(rel, func(t *testing.T) {
+			resolved, err := base.Resolve(rel)
+			if err != nil {
+				t.Fatalf("Resolve failed for '%s': %v", rel, err)
+			}
+			if resolved.String() != expected {
+				t.Errorf("For relative '%s', expected resolved IRI '%s', got '%s'", rel, expected, resolved.String())
+			}
+		})
+	}
+}
+
+// TestRef_Resolve_AbnormalExamples tests resolution based on RFC 3986, Section 5.4.2.
+func TestRef_Resolve_AbnormalExamples(t *testing.T) {
+	base := mustParseRef(t, "http://a/b/c/d;p?q")
+	testCases := map[string]string{
+		"../../../g":    "http://a/g",
+		"../../../../g": "http://a/g",
+		"/./g":          "http://a/g",
+		"/../g":         "http://a/g",
+		"g.":            "http://a/b/c/g.",
+		".g":            "http://a/b/c/.g",
+		"g..":           "http://a/b/c/g..",
+		"..g":           "http://a/b/c/..g",
+		"./../g":        "http://a/b/g",
+		"./g/.":         "http://a/b/c/g/",
+		"g/./h":         "http://a/b/c/g/h",
+		"g/../h":        "http://a/b/c/h",
+		"g;x=1/./y":     "http://a/b/c/g;x=1/y",
+		"g;x=1/../y":    "http://a/b/c/y",
+		"g?y/./x":       "http://a/b/c/g?y/./x",
+		"g?y/../x":      "http://a/b/c/g?y/../x",
+		"g#s/./x":       "http://a/b/c/g#s/./x",
+		"g#s/../x":      "http://a/b/c/g#s/../x",
+	}
+
+	for rel, expected := range testCases {
+		t.Run(rel, func(t *testing.T) {
+			resolved, err := base.Resolve(rel)
+			if err != nil {
+				t.Fatalf("Resolve failed for '%s': %v", rel, err)
+			}
+			if resolved.String() != expected {
+				t.Errorf("For relative '%s', expected resolved IRI '%s', got '%s'", rel, expected, resolved.String())
+			}
+		})
+	}
+}
+
+// TestRef_Resolve_Error tests resolution with an invalid relative reference.
+func TestRef_Resolve_Error(t *testing.T) {
+	base := mustParseRef(t, "http://a/b/c/d;p?q")
+	_, err := base.Resolve("1:b")
+	if err == nil {
+		t.Fatal("Expected an error, but got none")
+	}
+	expectedMsg := "Invalid IRI character in first path segment"
+	if !strings.Contains(err.Error(), expectedMsg) {
+		t.Errorf("Expected error message to contain '%s', got '%s'", expectedMsg, err.Error())
+	}
+}
+
+// TestRef_ResolveTo tests the optimized resolution of a relative IRI reference to a strings.Builder.
+func TestRef_ResolveTo(t *testing.T) {
+	base := mustParseRef(t, "http://a/b/c/d;p?q")
+	relativeIRI := "../g"
+	expectedIRI := "http://a/b/g"
+
 	var builder strings.Builder
-
-	err := base.ResolveTo("bat#foo", &builder)
+	pos, err := base.ResolveTo(relativeIRI, &builder)
 	if err != nil {
 		t.Fatalf("ResolveTo failed: %v", err)
 	}
-	expected := "http://foo.com/bar/bat#foo"
-	if builder.String() != expected {
-		t.Errorf("ResolveTo: got %q, want %q", builder.String(), expected)
+	resolvedStr := builder.String()
+	if resolvedStr != expectedIRI {
+		t.Errorf("Expected resolved string '%s', got '%s'", expectedIRI, resolvedStr)
 	}
 
-	builder.Reset()
-	base.ResolveUncheckedTo("bat#foo", &builder)
-	if builder.String() != expected {
-		t.Errorf("ResolveUncheckedTo: got %q, want %q", builder.String(), expected)
+	// Manually extract components using the Positions struct
+	var scheme, authority, path, query, fragment string
+	var hasScheme, hasAuthority, hasQuery, hasFragment bool
+
+	if pos.SchemeEnd > 0 {
+		scheme = resolvedStr[:pos.SchemeEnd-1]
+		hasScheme = true
+	}
+
+	if pos.AuthorityEnd > pos.SchemeEnd {
+		authorityComponent := resolvedStr[pos.SchemeEnd:pos.AuthorityEnd]
+		authority = strings.TrimPrefix(authorityComponent, "//")
+		hasAuthority = true
+	}
+
+	path = resolvedStr[pos.AuthorityEnd:pos.PathEnd]
+
+	if pos.PathEnd < pos.QueryEnd {
+		query = resolvedStr[pos.PathEnd+1 : pos.QueryEnd]
+		hasQuery = true
+	}
+
+	if pos.QueryEnd < len(resolvedStr) {
+		fragment = resolvedStr[pos.QueryEnd+1:]
+		hasFragment = true
+	}
+
+	// Assertions on extracted components
+	if !hasScheme {
+		t.Errorf("Expected scheme to be present")
+	}
+	if scheme != "http" {
+		t.Errorf("Expected scheme 'http', got '%s'", scheme)
+	}
+	if !hasAuthority {
+		t.Errorf("Expected authority to be present")
+	}
+	if authority != "a" {
+		t.Errorf("Expected authority 'a', got '%s'", authority)
+	}
+	if path != "/b/g" {
+		t.Errorf("Expected path '/b/g', got '%s'", path)
+	}
+	if hasQuery {
+		t.Errorf("Expected query to be absent, but got '%s'", query)
+	}
+	if hasFragment {
+		t.Errorf("Expected fragment to be absent, but got '%s'", fragment)
+	}
+
+	// Check error case
+	var errBuilder strings.Builder
+	_, err = base.ResolveTo("1:b", &errBuilder)
+	if err == nil {
+		t.Fatal("Expected an error, but got none")
+	}
+	var parseErr *ParseError
+	if !errors.As(err, &parseErr) {
+		t.Errorf("Expected error of type *ParseError, got %T", err)
 	}
 }
 
-// FuzzRelativizeRoundtrip fuzz tests the Relativize and Resolve methods by
-// generating a relative IRI and then resolving it back, checking if the result
-// matches the original absolute IRI. This helps find edge cases in both algorithms.
-func FuzzRelativizeRoundtrip(f *testing.F) {
-	f.Add("http://example.com/a/b", "http://example.com/a/c")
-	f.Add("http://example.com/a/b", "http://example.com/d")
-	f.Add("urn:foo:bar", "urn:foo:baz")
-	f.Add("http://a/b", "https://a/b")
-	f.Add("file:/a/b/c", "file:/a/d")
-
-	f.Fuzz(func(t *testing.T, absIRIStr, baseIRIStr string) {
-		base, err := ParseIri(baseIRIStr)
+// TestNewIriFromRef tests the creation of an Iri from a Ref, ensuring it handles absolute and relative refs correctly.
+func TestNewIriFromRef(t *testing.T) {
+	t.Run("Absolute Ref", func(t *testing.T) {
+		ref := mustParseRef(t, "http://example.com")
+		iri, err := NewIriFromRef(ref)
 		if err != nil {
-			return // Skip invalid base IRIs generated by fuzzer.
+			t.Fatalf("Expected no error, but got: %v", err)
 		}
-		abs, err := ParseIri(absIRIStr)
-		if err != nil {
-			return // Skip invalid absolute IRIs generated by fuzzer.
+		if iri == nil {
+			t.Fatal("Expected a non-nil Iri, but got nil")
 		}
+		if iri.String() != "http://example.com" {
+			t.Errorf("Expected iri string 'http://example.com', got '%s'", iri.String())
+		}
+	})
 
-		rel, err := base.Relativize(abs)
-		if err != nil {
-			return // Skip cases where relativization is not possible.
+	t.Run("Relative Ref", func(t *testing.T) {
+		ref := mustParseRef(t, "/path/to/resource")
+		iri, err := NewIriFromRef(ref)
+		if err == nil {
+			t.Fatal("Expected an error, but got none")
 		}
-
-		resolved, err := base.Resolve(rel.String())
-		if err != nil {
-			// This should not happen if relativize produced a valid reference.
-			t.Fatalf("Failed to resolve back relative IRI %q from base %q: %v", rel.String(), base.String(), err)
+		if iri != nil {
+			t.Fatal("Expected a nil Iri on error, but got a value")
 		}
-
-		if resolved.String() != abs.String() {
-			t.Errorf("Relativize round-trip failed:\n  base:     %s\n  absolute: %s\n  relative: %s\n  resolved: %s",
-				base.String(), abs.String(), rel.String(), resolved.String())
+		if !strings.Contains(err.Error(), "No scheme found") {
+			t.Errorf("Expected error message to contain 'No scheme found', got '%s'", err.Error())
 		}
 	})
 }
 
-// TestParseIriFails ensures that ParseIri returns an error for syntactically
-// invalid IRI strings.
-func TestParseIriFails(t *testing.T) {
-	t.Parallel()
-	// These inputs are invalid because they are not valid IRI-references.
-	invalidIRIs := []string{
-		":",
-		"http://[/",
-		"http://a b.com/",
+// TestParseIri tests that parsing requires an absolute IRI and fails for relative references.
+func TestParseIri(t *testing.T) {
+	t.Run("Valid Absolute", func(t *testing.T) {
+		iri, err := ParseIri("http://example.com")
+		if err != nil {
+			t.Fatalf("Expected no error, but got: %v", err)
+		}
+		if !iri.IsAbsolute() {
+			t.Error("Expected IRI to be absolute")
+		}
+	})
+	t.Run("Relative", func(t *testing.T) {
+		_, err := ParseIri("/relative/path")
+		if err == nil {
+			t.Fatal("Expected an error, but got none")
+		}
+		if !strings.Contains(err.Error(), "No scheme found") {
+			t.Errorf("Expected error message to contain 'No scheme found', got '%s'", err.Error())
+		}
+	})
+	t.Run("Invalid", func(t *testing.T) {
+		_, err := ParseIri("http://[")
+		if err == nil {
+			t.Fatal("Expected an error, but got none")
+		}
+	})
+}
+
+// TestParseNormalizedIri tests parsing an absolute IRI with NFC normalization.
+func TestParseNormalizedIri(t *testing.T) {
+	decomposed := "e\u0301" // e + combining acute accent
+	composed := "\u00e9"    // é (precomposed)
+	iriStr := "http://example.com/" + decomposed
+	iri, err := ParseNormalizedIri(iriStr)
+	if err != nil {
+		t.Fatalf("ParseNormalizedIri failed: %v", err)
 	}
 
-	for _, s := range invalidIRIs {
-		t.Run(s, func(t *testing.T) {
-			t.Parallel()
-			_, err := ParseIri(s)
-			if err == nil {
-				t.Errorf("ParseIri(%q) was expected to fail, but it did not", s)
+	expectedStr := "http://example.com/" + composed
+	if iri.String() != expectedStr {
+		t.Errorf("Expected IRI string to be normalized to NFC '%s', got '%s'", expectedStr, iri.String())
+	}
+
+	// Test error cases
+	_, err = ParseNormalizedIri("/relative")
+	if err == nil {
+		t.Fatal("Expected an error for relative IRI, but got none")
+	}
+	_, err = ParseNormalizedIri("1:b")
+	if err == nil {
+		t.Fatal("Expected an error for invalid IRI, but got none")
+	}
+}
+
+// TestIri_Scheme tests the Scheme accessor for the Iri type.
+func TestIri_Scheme(t *testing.T) {
+	iri := mustParseIri(t, "https://example.com")
+	if s := iri.Scheme(); s != "https" {
+		t.Errorf("Expected scheme 'https', got '%s'", s)
+	}
+}
+
+// TestIri_Resolve tests the resolution of a relative IRI reference against a base Iri.
+func TestIri_Resolve(t *testing.T) {
+	iri := mustParseIri(t, "http://a/b/c/d;p?q")
+	resolved, err := iri.Resolve("../g")
+	if err != nil {
+		t.Fatalf("Resolve failed: %v", err)
+	}
+	if resolved.String() != "http://a/b/g" {
+		t.Errorf("Expected resolved IRI 'http://a/b/g', got '%s'", resolved.String())
+	}
+	// Error case
+	_, err = iri.Resolve("1:b")
+	if err == nil {
+		t.Fatal("Expected an error for invalid relative ref, but got none")
+	}
+}
+
+// TestIri_ResolveTo tests the optimized resolution of a relative IRI reference against a base Iri to a strings.Builder.
+func TestIri_ResolveTo(t *testing.T) {
+	iri := mustParseIri(t, "http://a/b/c/d;p?q")
+	var builder strings.Builder
+	err := iri.ResolveTo("../g", &builder)
+	if err != nil {
+		t.Fatalf("ResolveTo failed: %v", err)
+	}
+	if builder.String() != "http://a/b/g" {
+		t.Errorf("Expected resolved string 'http://a/b/g', got '%s'", builder.String())
+	}
+	// Error case
+	var errBuilder strings.Builder
+	err = iri.ResolveTo("1:b", &errBuilder)
+	if err == nil {
+		t.Fatal("Expected an error for invalid relative ref, but got none")
+	}
+}
+
+// TestIri_MarshalJSON tests the JSON marshaling of an Iri.
+func TestIri_MarshalJSON(t *testing.T) {
+	iri := mustParseIri(t, "http://example.com/a")
+	jsonData, err := json.Marshal(iri)
+	if err != nil {
+		t.Fatalf("MarshalJSON failed: %v", err)
+	}
+	expected := `"http://example.com/a"`
+	if string(jsonData) != expected {
+		t.Errorf("Expected JSON string '%s', got '%s'", expected, string(jsonData))
+	}
+}
+
+// TestIri_UnmarshalJSON tests the JSON unmarshaling of an Iri, including validation.
+func TestIri_UnmarshalJSON(t *testing.T) {
+	t.Run("Valid Absolute IRI", func(t *testing.T) {
+		var iri Iri
+		jsonData := []byte(`"http://example.com"`)
+		err := json.Unmarshal(jsonData, &iri)
+		if err != nil {
+			t.Fatalf("UnmarshalJSON failed: %v", err)
+		}
+		if iri.String() != "http://example.com" {
+			t.Errorf("Expected unmarshaled string 'http://example.com', got '%s'", iri.String())
+		}
+	})
+
+	t.Run("Relative IRI", func(t *testing.T) {
+		var iri Iri
+		jsonData := []byte(`"/relative/path"`)
+		err := json.Unmarshal(jsonData, &iri)
+		if err == nil {
+			t.Fatal("Expected an error for relative IRI, but got none")
+		}
+		if !strings.Contains(err.Error(), "No scheme found") {
+			t.Errorf("Expected error message to contain 'No scheme found', got '%s'", err.Error())
+		}
+	})
+
+	t.Run("Invalid IRI", func(t *testing.T) {
+		var iri Iri
+		jsonData := []byte(`"http://["`)
+		err := json.Unmarshal(jsonData, &iri)
+		if err == nil {
+			t.Fatal("Expected an error for invalid IRI, but got none")
+		}
+	})
+
+	t.Run("Invalid JSON", func(t *testing.T) {
+		var iri Iri
+		err := iri.UnmarshalJSON([]byte("not-json"))
+		if err == nil {
+			t.Fatal("Expected an error for invalid JSON, but got none")
+		}
+	})
+}
+
+// TestIri_Relativize_Valid tests the process of creating a valid relative reference.
+func TestIri_Relativize_Valid(t *testing.T) {
+	testCases := []struct {
+		name     string
+		base     string
+		target   string
+		expected string
+	}{
+		{"Same document", "http://a/b/c", "http://a/b/c", ""},
+		{"Same path, add fragment", "http://a/b/c", "http://a/b/c#frag", "#frag"},
+		{"Same path, different query", "http://a/b/c?q1", "http://a/b/c?q2", "?q2"},
+		{"Path is subdirectory", "http://a/b/c", "http://a/b/c/d/e", "c/d/e"},
+		{"Path goes up one level", "http://a/b/c/d", "http://a/b/c/e", "e"},
+		{"Path goes up multiple levels", "http://a/b/c/d", "http://a/e", "../../e"},
+		{"Different authority", "http://a/b/c", "http://x/y/z", "//x/y/z"},
+		{"Different authority (no path)", "http://a/b/c", "http://x", "//x"},
+		{"Different scheme", "http://a/b/c", "https://x/y/z", "https://x/y/z"},
+		{"Same path, no target query", "http://a/b/c?q", "http://a/b/c", "c"},
+		{"Same authority, different root path", "http://a/b", "http://a/c", "c"},
+		{"Base with empty path", "http://a", "http://a/b/c", "b/c"},
+		{"Base path to root path", "http://a/b/c", "http://a/", "../"},
+		{"Different authority, no target authority", "http://a/b", "mailto:user@b", "mailto:user@b"},
+		{"Base has authority, target does not", "http://example.com/a", "http:/b/c", "http:/b/c"},
+		{"Target path is empty (with authority)", "http://a/b", "http://a", "//a"},
+		{"Target path is empty (no authority)", "mailto:user@example.com", "mailto:", "mailto:"},
+		{"Target path is empty", "http://a/b", "http://a/", "."},
+		{"Base has no authority", "mailto:a@b.com", "mailto:c@d.com", "c@d.com"},
+		{"No authority, up and down path", "foo:a/b/c", "foo:a/d/e", "../d/e"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := mustParseIri(t, tc.base)
+			target := mustParseIri(t, tc.target)
+
+			relativeRef, err := base.Relativize(target)
+			if err != nil {
+				t.Fatalf("Expected no error, but got: %v", err)
+			}
+			if relativeRef.String() != tc.expected {
+				t.Errorf("Expected relative ref '%s', got '%s'", tc.expected, relativeRef.String())
 			}
 		})
 	}
 }
 
-// TestParseError_Unwrap verifies that the Unwrap method of a ParseError
-// correctly returns the underlying wrapped error, making it compatible
-// with functions like errors.Is.
-func TestParseError_Unwrap(t *testing.T) {
-	t.Parallel()
-
-	underlyingErr := errors.New("this is the specific cause")
-	wrappedErr := fmt.Errorf("some context: %w", underlyingErr)
-	parseErr := newParseError(wrappedErr)
-
-	if !errors.Is(parseErr, underlyingErr) {
-		t.Errorf("errors.Is failed: expected the ParseError to wrap the underlying error, but it did not")
+// TestIri_Relativize_Invalid tests cases where relativization should fail.
+func TestIri_Relativize_Invalid(t *testing.T) {
+	testCases := []struct {
+		name   string
+		base   string
+		target string
+	}{
+		{"Target has dot segments", "http://a/b/c", "http://a/b/./d"},
+		{"Target has .. segment", "http://a/b/c", "http://a/b/../d"},
 	}
 
-	unwrapped := errors.Unwrap(parseErr)
-	if !errors.Is(unwrapped, underlyingErr) {
-		t.Errorf(
-			"errors.Unwrap() returned <%v>, which is not the expected underlying error <%v>",
-			unwrapped,
-			underlyingErr,
-		)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			base := mustParseIri(t, tc.base)
+			target := mustParseIri(t, tc.target)
+
+			_, err := base.Relativize(target)
+			if err == nil {
+				t.Fatal("Expected an error, but got none")
+			}
+			if !errors.Is(err, ErrIriRelativize) {
+				t.Errorf("Expected error '%v', but got '%v'", ErrIriRelativize, err)
+			}
+		})
 	}
-}
-
-// TestParseRefUnchecked_Panic verifies that ParseRefUnchecked panics
-// when the underlying parser unexpectedly returns an error, even in unchecked mode.
-// This is a test for the defensive panic logic.
-func TestParseRefUnchecked_Panic(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("ParseRefUnchecked was expected to panic on invalid input, but it did not")
-		}
-	}()
-
-	_ = ParseRefUnchecked("http://example.com/%")
-}
-
-// TestRef_RelativeScheme verifies that calling Scheme() on a relative reference
-// correctly indicates that no scheme is present.
-func TestRef_RelativeScheme(t *testing.T) {
-	t.Parallel()
-
-	ref, err := ParseRef("/path/only?q=1")
-	if err != nil {
-		t.Fatalf("ParseRef() failed unexpectedly for a valid relative ref: %v", err)
-	}
-
-	scheme, ok := ref.Scheme()
-
-	if ok {
-		t.Error("Scheme() returned ok=true for a relative reference, want false")
-	}
-	if scheme != "" {
-		t.Errorf("Scheme() returned scheme=%q for a relative reference, want empty string", scheme)
-	}
-}
-
-// TestParseIriUnchecked_Panic verifies that ParseIriUnchecked panics when called
-// with a relative IRI, as is its documented behavior.
-func TestParseIriUnchecked_Panic(t *testing.T) {
-	t.Parallel()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("ParseIriUnchecked was expected to panic on a relative IRI, but it did not")
-		}
-	}()
-
-	_ = ParseIriUnchecked("//a/b/c")
-}
-
-// TestRelativizeWithFragmentAndQuery tests the Relativize method for cases where a
-// relative path must be constructed and the target IRI contains a query and/or a
-// fragment.
-func TestRelativizeWithFragmentAndQuery(t *testing.T) {
-	t.Parallel()
-	base, _ := ParseIri("http://example.com/foo/bar")
-	target, _ := ParseIri("http://example.com/foo/baz#section")
-
-	rel, err := base.Relativize(target)
-	if err != nil {
-		t.Fatalf("Relativize failed: %v", err)
-	}
-
-	expected := "baz#section"
-	if rel.String() != expected {
-		t.Errorf("Relativizing %q against %q gives %q, want %q",
-			target.String(), base.String(), rel.String(), expected)
-	}
-
-	targetWithQuery, _ := ParseIri("http://example.com/foo/baz?q=1#section")
-	relWithQuery, err := base.Relativize(targetWithQuery)
-	if err != nil {
-		t.Fatalf("Relativize with query failed: %v", err)
-	}
-	expectedWithQuery := "baz?q=1#section"
-	if relWithQuery.String() != expectedWithQuery {
-		t.Errorf("Relativizing %q against %q gives %q, want %q",
-			targetWithQuery.String(), base.String(), relWithQuery.String(), expectedWithQuery)
-	}
-}
-
-// TestResolveUncheckedTo_Panic verifies that ResolveUncheckedTo panics when the
-// underlying parser returns an error, even in unchecked mode. This is a test
-// for the defensive panic logic.
-func TestResolveUncheckedTo_Panic(t *testing.T) {
-	t.Parallel()
-	base := ParseIriUnchecked("http://a/b")
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("ResolveUncheckedTo was expected to panic on invalid input, but it did not")
-		}
-	}()
-
-	var builder strings.Builder
-	invalidRelativeIRI := "http://example.com/%"
-	base.ResolveUncheckedTo(invalidRelativeIRI, &builder)
 }

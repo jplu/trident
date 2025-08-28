@@ -1,5 +1,8 @@
-#Private Nix configuration file
+# Private Nix configuration file
 .idx/dev.local.nix
+
+# Content files
+content.*
 
 # Binaries for programs and plugins
 *.exe

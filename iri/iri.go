@@ -9,7 +9,7 @@ You may obtain a copy of the License at
 
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUTHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
@@ -32,12 +32,16 @@ limitations under the License.
 package iri
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/jplu/trident/internal/parser"
+	// TODO: At some point implement my own IDNA2003 module (RFC 3490).
+	"golang.org/x/net/idna"
+	// TODO: At some point implement my own NFC module.
+	"golang.org/x/text/unicode/norm"
 )
 
 // ParseError is the error type returned by parsing functions in this package.
@@ -45,11 +49,6 @@ import (
 type ParseError struct {
 	Message string
 	Err     error
-}
-
-// newParseError creates a new ParseError, wrapping the original error.
-func newParseError(err error) *ParseError {
-	return &ParseError{Message: err.Error(), Err: errors.Unwrap(err)}
 }
 
 // Error returns the string representation of the parse error.
@@ -69,35 +68,105 @@ var ErrIriRelativize = errors.New("it is not possible to make this IRI relative 
 
 // Ref represents an IRI reference, which can be either absolute or relative.
 // It is an immutable type; methods that modify the IRI, like Resolve, return a new Ref.
+// The internal `iri` string is stored exactly as provided to the parsing function.
+// For comparison purposes where canonical equivalence is desired, use `ParseNormalizedRef`
+// or the `Normalize()` method.
 type Ref struct {
 	iri       string
-	positions parser.Positions
+	positions Positions
 }
 
 // ParseRef parses and validates a string as an IRI reference.
-// It returns a new Ref on success or a ParseError on failure.
+// This function is compliant with RFC 3987, Section 3.1, Step 1c.
+// It parses the string as-is, without applying any Unicode normalization.
+// This preserves the exact character sequence of the input, which is critical for
+// applications that use IRIs as unique, opaque identifiers.
+//
+// For applications that require canonical equivalence for comparison or storage,
+// use `ParseNormalizedRef` instead.
 func ParseRef(s string) (*Ref, error) {
-	// Use the internal parser in validation-only mode to get component positions.
-	positions, err := parser.Run(s, nil, false, &parser.VoidOutputBuffer{})
+	pos, err := run(s, nil, false, &voidOutputBuffer{})
 	if err != nil {
 		return nil, newParseError(err)
 	}
-	return &Ref{iri: s, positions: positions}, nil
+
+	return &Ref{iri: s, positions: pos}, nil
 }
 
-// ParseRefUnchecked parses a string as an IRI reference without performing
-// strict validation. It is significantly faster than ParseRef but should only
-// be used with input that is *known* to be a valid IRI reference.
+// ParseNormalizedRef provides the previous behavior of ParseRef for users
+// who need it. It first normalizes the input string to Unicode Normalization Form C (NFC)
+// and then parses it. This is useful for ensuring that canonically equivalent IRIs
+// are treated as identical, which is important for caching, history, and other
+// comparison-sensitive operations.
 //
-// Providing an invalid IRI may cause a panic.
-func ParseRefUnchecked(s string) *Ref {
-	positions, err := parser.Run(s, nil, true, &parser.VoidOutputBuffer{})
+// In accordance with RFC 3987 sections 3.1 and 5.3.2.2, this function should
+// be used when the source of the IRI string is not from a pre-normalized Unicode
+// source (e.g., read from paper or converted from a legacy encoding).
+func ParseNormalizedRef(s string) (*Ref, error) {
+	normalizedIRI := norm.NFC.String(s)
+
+	pos, err := run(normalizedIRI, nil, false, &voidOutputBuffer{})
 	if err != nil {
-		// This should only happen if the internal parser has a bug,
-		// as unchecked mode is not expected to return errors.
-		panic(fmt.Sprintf("ParseRefUnchecked failed on known-valid IRI: %v", err))
+		return nil, newParseError(err)
 	}
-	return &Ref{iri: s, positions: positions}
+
+	return &Ref{iri: normalizedIRI, positions: pos}, nil
+}
+
+// ParseURIToRef converts a URI string into an IRI reference by decoding
+// percent-encoded octets that form valid UTF-8 sequences. This is the
+// reverse of the ToURI method and follows RFC 3987, Section 3.2.
+//
+// It cautiously decodes only valid sequences and re-validates the final
+// string to ensure it forms a syntactically correct IRI reference. Any
+// percent-encoded octets that do not form a valid UTF-8 sequence or that
+// represent characters not permitted in IRIs (such as bidi control characters)
+// are left in their percent-encoded form.
+func ParseURIToRef(s string) (*Ref, error) {
+	var builder strings.Builder
+	builder.Grow(len(s))
+
+	i := 0
+	for i < len(s) {
+		if s[i] != '%' {
+			builder.WriteByte(s[i])
+			i++
+			continue
+		}
+
+		start := i
+		var decodedBytes []byte
+		// Find a contiguous block of percent-encoded octets.
+		for i < len(s) && s[i] == '%' {
+			if i+2 >= len(s) || !isASCIIHexDigit(rune(s[i+1])) || !isASCIIHexDigit(rune(s[i+2])) {
+				// Incomplete or invalid encoding, stop processing this block.
+				break
+			}
+			b, _ := hex.DecodeString(s[i+1 : i+3])
+			decodedBytes = append(decodedBytes, b[0])
+			i += 3
+		}
+
+		// If the inner loop didn't advance, we found an invalid/incomplete sequence.
+		if i == start {
+			// Write the original '%' and advance past it to prevent an infinite loop.
+			builder.WriteByte(s[start])
+			i++
+			continue
+		}
+
+		if validateDecodedBytes(decodedBytes) {
+			builder.Write(decodedBytes)
+		} else {
+			// Not valid UTF-8 or contains forbidden characters, so keep original encoding.
+			builder.WriteString(s[start:i])
+		}
+	}
+
+	// The decoded string must be re-parsed to ensure it is a valid IRI.
+	// ParseNormalizedRef is used here because URI-to-IRI conversion
+	// implies a canonical representation is desired.
+	return ParseNormalizedRef(builder.String())
 }
 
 // Resolve resolves a relative IRI reference against the current Ref (which acts as the base IRI).
@@ -105,55 +174,159 @@ func ParseRefUnchecked(s string) *Ref {
 func (r *Ref) Resolve(relativeIRI string) (*Ref, error) {
 	builder := &strings.Builder{}
 	builder.Grow(len(r.iri) + len(relativeIRI)) // Pre-allocate for efficiency.
-	positions, err := r.ResolveTo(relativeIRI, builder)
+	pos, err := r.ResolveTo(relativeIRI, builder)
 	if err != nil {
 		return nil, err
 	}
-	return &Ref{iri: builder.String(), positions: positions}, nil
-}
-
-// ResolveUnchecked resolves a relative IRI reference without validation. It is faster
-// than Resolve but should only be used when both the base and the relative IRI are
-// known to be valid.
-//
-// Providing invalid input may cause a panic.
-func (r *Ref) ResolveUnchecked(relativeIRI string) *Ref {
-	builder := &strings.Builder{}
-	builder.Grow(len(r.iri) + len(relativeIRI))
-	positions := r.ResolveUncheckedTo(relativeIRI, builder)
-	return &Ref{iri: builder.String(), positions: positions}
+	return &Ref{iri: builder.String(), positions: pos}, nil
 }
 
 // ResolveTo resolves a relative IRI reference and writes the result directly into
-// the provided strings.Builder, avoiding extra allocations. This is useful for
-// performance-critical code.
-func (r *Ref) ResolveTo(relativeIRI string, target *strings.Builder) (parser.Positions, error) {
-	base := &parser.Base{IRI: r.iri, Pos: r.positions}
-	output := &parser.StringOutputBuffer{Builder: target}
-	positions, err := parser.Run(relativeIRI, base, false, output)
-	if err != nil {
-		return parser.Positions{}, newParseError(err)
-	}
-	return positions, nil
-}
+// the provided strings.Builder, avoiding extra allocations. It returns the positions
+// of the components in the resulting IRI. This is useful for performance-critical code.
+// The relative IRI reference is normalized to NFC before resolution.
+func (r *Ref) ResolveTo(relativeIRI string, target *strings.Builder) (Positions, error) {
+	// Note: Normalizing the relative part here is a good practice for consistency
+	// of the resolved output, even if the base might not be normalized.
+	normalizedRelativeIRI := norm.NFC.String(relativeIRI)
 
-// ResolveUncheckedTo resolves a relative IRI reference without validation and writes
-// the result to the provided strings.Builder.
-//
-// Providing invalid input may cause a panic.
-func (r *Ref) ResolveUncheckedTo(relativeIRI string, target *strings.Builder) parser.Positions {
-	base := &parser.Base{IRI: r.iri, Pos: r.positions}
-	output := &parser.StringOutputBuffer{Builder: target}
-	positions, err := parser.Run(relativeIRI, base, true, output)
+	b := &base{IRI: r.iri, Pos: r.positions}
+	output := &stringOutputBuffer{builder: target}
+
+	pos, err := run(normalizedRelativeIRI, b, false, output)
+
 	if err != nil {
-		panic(fmt.Sprintf("ResolveUncheckedTo failed on known-valid IRI: %v", err))
+		return Positions{}, newParseError(err)
 	}
-	return positions
+	return pos, nil
 }
 
 // String returns the underlying string representation of the IRI reference.
+// The returned string is not guaranteed to be in any specific Unicode normalization form
+// unless the Ref was created with `ParseNormalizedRef` or processed by `Normalize()`.
 func (r *Ref) String() string {
 	return r.iri
+}
+
+// ToURI converts the IRI reference to a URI reference string, strictly following
+// RFC 3987, Section 3.1. It normalizes all components to NFC, percent-encodes
+// any non-ASCII characters using their UTF-8 representation, and applies IDNA
+// (ToASCII) to the host component to ensure the resulting URI is resolvable in DNS.
+func (r *Ref) ToURI() string {
+	var builder strings.Builder
+	builder.Grow(len(r.iri))
+
+	scheme, hasScheme := r.Scheme()
+	authority, hasAuthority := r.Authority()
+	path := r.Path()
+	query, hasQuery := r.Query()
+	fragment, hasFragment := r.Fragment()
+
+	if hasScheme {
+		builder.WriteString(scheme)
+		builder.WriteRune(':')
+	}
+
+	if hasAuthority {
+		builder.WriteString("//")
+		userinfo, host, port := splitAuthority(authority)
+
+		// Per RFC 3987, Section 3.1, Step 1, components must be in NFC
+		// before percent-encoding.
+		normalizedUserinfo := norm.NFC.String(userinfo)
+		percentEncode(normalizedUserinfo, &builder)
+		if userinfo != "" {
+			builder.WriteRune('@')
+		}
+
+		// Normalize host to NFC before applying IDNA.
+		normalizedHost := norm.NFC.String(host)
+
+		// Apply IDNA ToASCII to the host for DNS resolvability.
+		asciiHost, err := idna.ToASCII(normalizedHost)
+		if err == nil {
+			builder.WriteString(asciiHost)
+		}
+
+		if port != "" {
+			builder.WriteRune(':')
+			builder.WriteString(port)
+		}
+	}
+
+	// Normalize path, query, and fragment to NFC before percent-encoding.
+	percentEncode(norm.NFC.String(path), &builder)
+	if hasQuery {
+		builder.WriteRune('?')
+		percentEncode(norm.NFC.String(query), &builder)
+	}
+	if hasFragment {
+		builder.WriteRune('#')
+		percentEncode(norm.NFC.String(fragment), &builder)
+	}
+
+	return builder.String()
+}
+
+// Normalize applies syntax-based normalization to the IRI reference according
+// to RFC 3986, Section 6.2.2. This includes case-normalization of the scheme
+// and host, percent-encoding normalization, and path-segment normalization.
+// It also ensures the resulting IRI is in Unicode Normalization Form C (NFC).
+// It returns a new, normalized Ref.
+func (r *Ref) Normalize() *Ref {
+	if r.iri == "" {
+		return &Ref{}
+	}
+
+	scheme, hasScheme := r.Scheme()
+	authority, hasAuthority := r.Authority()
+	path := r.Path()
+	query, hasQuery := r.Query()
+	fragment, hasFragment := r.Fragment()
+
+	// 1. Case Normalization
+	if hasScheme {
+		scheme = strings.ToLower(scheme)
+	}
+	var userinfo, host, port string
+	if hasAuthority {
+		userinfo, host, port = splitAuthority(authority)
+		host, port = normalizeHostAndPort(host, port, scheme)
+	}
+
+	// 2. Percent-Encoding Normalization
+	userinfo = normalizePercentEncoding(userinfo)
+	host = normalizePercentEncoding(host)
+	path = normalizePercentEncoding(path)
+	query = normalizePercentEncoding(query)
+	fragment = normalizePercentEncoding(fragment)
+
+	// 3. Path Segment Normalization
+	path = removeDotSegments(path)
+
+	// 4. Scheme-based normalization for path
+	if hasAuthority && path == "" {
+		path = "/"
+	}
+
+	// Recompose and re-parse
+	recomposedStr := recomposeNormalizedIRI(
+		scheme, hasScheme,
+		userinfo, host, port, hasAuthority,
+		path,
+		query, hasQuery,
+		fragment, hasFragment,
+	)
+
+	normalizedStr := norm.NFC.String(recomposedStr)
+
+	if normalizedStr == r.iri {
+		return r
+	}
+	// An error is not expected here as we are building from valid components.
+	// We use the compliant ParseRef because normalizedStr is now guaranteed to be NFC.
+	newRef, _ := ParseRef(normalizedStr)
+	return newRef
 }
 
 // IsAbsolute returns true if the IRI reference is absolute (i.e., it has a scheme).
@@ -214,12 +387,13 @@ func (r *Ref) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface. It decodes a JSON string
-// into a Ref, performing validation in the process.
+// into a Ref, performing validation in the process. It does not perform NFC normalization.
 func (r *Ref) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
+
 	newRef, err := ParseRef(s)
 	if err != nil {
 		return err
@@ -235,7 +409,8 @@ type Iri struct {
 }
 
 // ParseIri parses and validates a string, ensuring it is an absolute IRI.
-// If the string is a relative reference, it returns an error.
+// If the string is a relative reference, it returns an error. The string is not
+// NFC normalized; for that, use `ParseNormalizedIri`.
 func ParseIri(s string) (*Iri, error) {
 	ref, err := ParseRef(s)
 	if err != nil {
@@ -244,22 +419,20 @@ func ParseIri(s string) (*Iri, error) {
 	return NewIriFromRef(ref)
 }
 
-// ParseIriUnchecked parses a string as an absolute IRI without strict validation.
-// It is faster than ParseIri but will panic if the input is not a valid,
-// absolute IRI. It should only be used with known-good input.
-func ParseIriUnchecked(s string) *Iri {
-	ref := ParseRefUnchecked(s)
-	if !ref.IsAbsolute() {
-		panic("ParseIriUnchecked called with a relative IRI")
+// ParseNormalizedIri parses a string as an absolute IRI, first applying NFC normalization.
+func ParseNormalizedIri(s string) (*Iri, error) {
+	ref, err := ParseNormalizedRef(s)
+	if err != nil {
+		return nil, err
 	}
-	return &Iri{Ref: *ref}
+	return NewIriFromRef(ref)
 }
 
 // NewIriFromRef attempts to create an absolute Iri from an existing Ref.
 // It returns an error if the provided Ref is not absolute.
 func NewIriFromRef(ref *Ref) (*Iri, error) {
 	if !ref.IsAbsolute() {
-		return nil, newParseError(parser.ErrNoScheme)
+		return nil, newParseError(errNoScheme)
 	}
 	return &Iri{Ref: *ref}, nil
 }
@@ -281,24 +454,11 @@ func (i *Iri) Resolve(relativeIRI string) (*Iri, error) {
 	return &Iri{Ref: *ref}, nil
 }
 
-// ResolveUnchecked resolves a relative IRI reference without validation.
-// It is faster but may panic on invalid input.
-func (i *Iri) ResolveUnchecked(relativeIRI string) *Iri {
-	ref := i.Ref.ResolveUnchecked(relativeIRI)
-	return &Iri{Ref: *ref}
-}
-
 // ResolveTo resolves a relative IRI and writes the resulting absolute IRI
 // to the provided strings.Builder, avoiding allocations.
 func (i *Iri) ResolveTo(relativeIRI string, target *strings.Builder) error {
 	_, err := i.Ref.ResolveTo(relativeIRI, target)
 	return err
-}
-
-// ResolveUncheckedTo resolves a relative IRI without validation and writes the
-// result to the provided strings.Builder. It may panic on invalid input.
-func (i *Iri) ResolveUncheckedTo(relativeIRI string, target *strings.Builder) {
-	i.Ref.ResolveUncheckedTo(relativeIRI, target)
 }
 
 // MarshalJSON implements the json.Marshaler interface.
@@ -332,14 +492,12 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	base := i
 	absPath := abs.Path()
 
-	// Pre-condition: The target path cannot contain dot segments for relativization.
 	for _, segment := range strings.Split(absPath, "/") {
 		if segment == "." || segment == ".." {
 			return nil, ErrIriRelativize
 		}
 	}
 
-	// If schemes are different, the result is just the absolute target IRI.
 	if base.Scheme() != abs.Scheme() {
 		return ParseRef(abs.String())
 	}
@@ -347,10 +505,8 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	baseAuthority, hasBaseAuthority := base.Authority()
 	absAuthority, hasAbsAuthority := abs.Authority()
 
-	// If authorities differ, return a scheme-relative reference (e.g., "//example.org/path").
 	if hasBaseAuthority != hasAbsAuthority || (hasBaseAuthority && baseAuthority != absAuthority) {
 		if !hasAbsAuthority {
-			// This is a rare case, like relativizing http://a against http:b
 			return ParseRef(abs.String())
 		}
 		return ParseRef(abs.String()[abs.positions.SchemeEnd:])
@@ -365,7 +521,6 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 		return ParseRef(abs.String()[abs.positions.SchemeEnd:])
 	}
 
-	// If paths are identical, the difference is only in the query and/or fragment.
 	if basePath == absPath {
 		return i.relativizeForSamePath(abs)
 	}
@@ -375,160 +530,4 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	}
 
 	return i.relativizeWithAuthority(abs)
-}
-
-// relativizeForSamePath handles relativization when base and target paths are identical.
-func (i *Iri) relativizeForSamePath(abs *Iri) (*Ref, error) {
-	base := i
-	baseQuery, hasBaseQuery := base.Query()
-	absQuery, hasAbsQuery := abs.Query()
-	absFragment, hasAbsFragment := abs.Fragment()
-
-	// If queries also match, the result is just the fragment or an empty string.
-	if hasBaseQuery == hasAbsQuery && baseQuery == absQuery {
-		if hasAbsFragment {
-			return ParseRef("#" + absFragment)
-		}
-		return ParseRef("") // The IRIs are identical.
-	}
-
-	if !hasAbsQuery && hasBaseQuery {
-		return i.relativizeForSamePathWithEmptyTargetQuery(abs)
-	}
-
-	// Otherwise, the result starts from the query part.
-	return ParseRef(abs.String()[abs.positions.PathEnd:])
-}
-
-// relativizeForSamePathWithEmptyTargetQuery handles a specific edge case where
-// paths match, but the target has no query while the base does.
-func (i *Iri) relativizeForSamePathWithEmptyTargetQuery(abs *Iri) (*Ref, error) {
-	absPath := abs.Path()
-	if absPath != "" {
-		// The result should be the filename part of the path.
-		lastSlash := strings.LastIndex(absPath, "/")
-		relPath := absPath[lastSlash+1:]
-		if relPath == "" {
-			relPath = "." // e.g. http://a/b/ resolves to "."
-		}
-		return buildRelativeRef(relPath, abs)
-	}
-
-	// If path is empty, we must include the authority.
-	_, hasAbsAuthority := abs.Authority()
-	if !hasAbsAuthority {
-		return ParseRef(abs.String())
-	}
-	return ParseRef(abs.String()[abs.positions.SchemeEnd:])
-}
-
-// relativizeForNoAuthority handles relativization when both IRIs lack an authority part.
-func (i *Iri) relativizeForNoAuthority(abs *Iri) (*Ref, error) {
-	base := i
-	basePath := base.Path()
-	absPath := abs.Path()
-
-	// A simple prefix cut might work if it doesn't create ambiguity.
-	if relPath, ok := strings.CutPrefix(abs.String(), base.String()); ok {
-		firstColon := strings.Index(relPath, ":")
-		firstSlash := strings.Index(relPath, "/")
-		isSchemeAmbiguous := firstColon != -1 && (firstSlash == -1 || firstColon < firstSlash)
-		isPathAbsoluteAmbiguous := strings.HasPrefix(relPath, "/")
-
-		if !isSchemeAmbiguous && !isPathAbsoluteAmbiguous {
-			return ParseRef(relPath)
-		}
-	}
-
-	// Find common parent directory.
-	lastSlash := strings.LastIndex(basePath, "/")
-	if lastSlash == -1 {
-		return ParseRef(abs.String())
-	}
-
-	baseDir := basePath[:lastSlash+1]
-	relPath, ok := strings.CutPrefix(absPath, baseDir)
-	if !ok || strings.HasPrefix(relPath, "/") {
-		return ParseRef(abs.String())
-	}
-
-	firstColon := strings.Index(relPath, ":")
-	firstSlash := strings.Index(relPath, "/")
-	isSchemeAmbiguous := firstColon != -1 && (firstSlash == -1 || firstColon < firstSlash)
-	if isSchemeAmbiguous {
-		return ParseRef(abs.String())
-	}
-
-	return buildRelativeRef(relPath, abs)
-}
-
-// relativizeWithAuthority handles the most complex case where both IRIs have
-// an authority, and paths need to be compared.
-func (i *Iri) relativizeWithAuthority(abs *Iri) (*Ref, error) {
-	base := i
-	basePath := base.Path()
-	absPath := abs.Path()
-
-	if strings.HasPrefix(absPath, "//") && !strings.HasPrefix(basePath, "//") {
-		return ParseRef(abs.String()[abs.positions.SchemeEnd:])
-	}
-
-	lastSlash := strings.LastIndex(basePath, "/")
-	if lastSlash == -1 {
-		return ParseRef(abs.String()[abs.positions.AuthorityEnd:])
-	}
-	baseDir := basePath[:lastSlash+1]
-
-	// If target is in the same directory, the result is simple.
-	if relPath, ok := strings.CutPrefix(absPath, baseDir); ok && (len(relPath) == 0 || relPath[0] != ':') {
-		if relPath == "" {
-			relPath = "."
-		}
-		return buildRelativeRef(relPath, abs)
-	}
-
-	// Find the common path prefix by splitting into segments.
-	baseSegs := strings.Split(baseDir, "/")
-	absSegs := strings.Split(absPath, "/")
-
-	commonSegs := 0
-	for commonSegs < len(baseSegs) && commonSegs < len(absSegs) && baseSegs[commonSegs] == absSegs[commonSegs] {
-		commonSegs++
-	}
-
-	// If no common path, return path from root.
-	if commonSegs <= 1 {
-		return ParseRef(abs.String()[abs.positions.AuthorityEnd:])
-	}
-
-	var b strings.Builder
-	// Add "../" for each directory to go up from base to the common ancestor.
-	for i := commonSegs; i < len(baseSegs); i++ {
-		if baseSegs[i] != "" {
-			b.WriteString("../")
-		}
-	}
-	// Add the rest of the target path from the common ancestor.
-	b.WriteString(strings.Join(absSegs[commonSegs:], "/"))
-
-	return buildRelativeRef(b.String(), abs)
-}
-
-// buildRelativeRef constructs the final relative reference string from a relative path
-// and the query/fragment parts of the absolute target IRI.
-func buildRelativeRef(relPath string, abs *Iri) (*Ref, error) {
-	absQuery, hasAbsQuery := abs.Query()
-	absFragment, hasAbsFragment := abs.Fragment()
-
-	var b strings.Builder
-	b.WriteString(relPath)
-	if hasAbsQuery {
-		b.WriteRune('?')
-		b.WriteString(absQuery)
-	}
-	if hasAbsFragment {
-		b.WriteRune('#')
-		b.WriteString(absFragment)
-	}
-	return ParseRef(b.String())
 }
