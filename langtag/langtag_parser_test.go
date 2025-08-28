@@ -444,7 +444,6 @@ func TestCompareVariants(t *testing.T) {
 		// RFC example: 'scotland' ("en") vs 'fonipa' (no prefix) -> 'scotland' comes first
 		{"scotland", "fonipa", true},
 		{"fonipa", "scotland", false},
-		// Custom cases for coverage
 		{"b", "a", true},  // 'b' must come before 'a' because 'a' depends on 'b'
 		{"a", "b", false}, // 'a' must come after 'b'
 		{"b", "d", true},  // 'b' has a prefix, 'd' does not
