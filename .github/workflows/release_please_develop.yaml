@@ -17,5 +17,5 @@ jobs:
         id: release
         with:
           config-file: release-please-config-develop.json
-          manifest-file: .release-please-manifest-develop.json
+          manifest-file: .release-please-manifest.json
           target-branch: develop
