@@ -1,0 +1,34 @@
+default_install_hook_types: [pre-commit, prepare-commit-msg]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/commit-check/commit-check
+    rev: v0.10.1
+    hooks:
+      -   id: check-message
+      -   id: check-branch
+      -   id: check-author-name
+      -   id: check-author-email
+      -   id: check-commit-signoff
+
+  - repo: local
+    hooks:
+      - id: go-test
+        name: Run Go Tests
+        entry: go test -cover -v ./...
+        language: golang
+        pass_filenames: false
+      - id: golangci-lint
+        name: Run Linters
+        entry: golangci-lint run --timeout=3m
+        language: golang
+        pass_filenames: false
