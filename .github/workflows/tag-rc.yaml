@@ -1,0 +1,55 @@
+name: Tag — Release Candidate
+
+on:
+  push:
+    branches:
+      - release-candidate
+
+permissions:
+  contents: write
+
+jobs:
+  tag-rc:
+    name: Compute & push RC tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Compute next RC tag
+        id: rc_tag
+        run: |
+          NEXT_VERSION=$(jq -r '.["."]' .github/.release-please-manifest.json)
+
+          LAST_RC=$(git tag --list "v${NEXT_VERSION}-rc.*" \
+            | sed "s/v${NEXT_VERSION}-rc\.//" \
+            | sort -n \
+            | tail -1)
+
+          if [ -z "$LAST_RC" ]; then
+            NEXT_RC=0
+          else
+            NEXT_RC=$(( LAST_RC + 1 ))
+          fi
+
+          TAG="v${NEXT_VERSION}-rc.${NEXT_RC}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Computed RC tag: $TAG"
+
+      - name: Push RC tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.rc_tag.outputs.tag }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rc_tag.outputs.tag }}
+          name: "Release Candidate ${{ steps.rc_tag.outputs.tag }}"
+          body: "⚠️ Pre-release candidate — not intended for production use."
+          prerelease: true
