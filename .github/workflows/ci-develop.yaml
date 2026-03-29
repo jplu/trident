@@ -1,0 +1,63 @@
+name: CI — Develop
+
+on:
+  push:
+    branches:
+      - develop
+  pull_request:
+    branches:
+      - develop
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.24.x', '1.25.x' ]
+        os: [ ubuntu-latest, macos-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run linter
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25.x'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+          args: --timeout=3m ./...
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-develop-${{ github.sha }}
+          path: coverage.txt
+          retention-days: 7
+
+      - name: Build all packages
+        run: go build -v ./...
