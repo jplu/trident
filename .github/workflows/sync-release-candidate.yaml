@@ -81,7 +81,6 @@ jobs:
                 owner, repo, ref: sha,
               });
 
-              // Exclude the sync job itself to avoid self-reference
               const runs    = result.check_runs.filter(r => r.name !== syncJobName);
               const pending = runs.filter(r => r.status !== 'completed');
               const failed  = runs.filter(r => r.status === 'completed' && r.conclusion === 'failure');
