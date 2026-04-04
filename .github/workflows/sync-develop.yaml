@@ -1,0 +1,38 @@
+name: Sync — release-candidate into develop
+
+on:
+  push:
+    branches:
+      - release-candidate
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Merge release-candidate into develop
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Configure Git identity
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge release-candidate into develop
+        run: |
+          git checkout develop
+          git pull origin develop
+          git merge origin/release-candidate \
+            --no-ff \
+            --signoff \
+            -m "chore: sync release-candidate into develop
+
+Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          git push origin develop
