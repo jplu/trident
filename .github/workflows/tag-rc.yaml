@@ -18,11 +18,68 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Compute next RC tag
+      - name: Compute next version and RC tag
         id: rc_tag
         run: |
-          NEXT_VERSION=$(jq -r '.["."]' .github/.release-please-manifest.json)
+          # ── 1. Find the last GA release tag (vX.Y.Z, no pre-release suffix) ──
+          LAST_TAG=$(git tag --list "v*.*.*" \
+            | grep -E "^v[0-9]+\.[0-9]+\.[0-9]+$" \
+            | sort -V \
+            | tail -1)
 
+          if [ -z "$LAST_TAG" ]; then
+            # No GA release yet — start from the manifest version
+            LAST_TAG="v$(jq -r '.["."]' .github/.release-please-manifest.json)"
+            echo "No GA tag found, using manifest version as base: $LAST_TAG"
+          else
+            echo "Last GA tag: $LAST_TAG"
+          fi
+
+          # ── 2. Analyse commits since the last GA tag ───────────────────────
+          COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%s")
+
+          BREAKING=false
+          FEAT=false
+          FIX=false
+
+          while IFS= read -r msg; do
+            # Breaking change: footer "BREAKING CHANGE:" or "!" after type
+            if echo "$msg" | grep -qE "^[a-z]+(\(.+\))?!:|BREAKING CHANGE:"; then
+              BREAKING=true
+            elif echo "$msg" | grep -qE "^feat(\(.+\))?:"; then
+              FEAT=true
+            elif echo "$msg" | grep -qE "^fix(\(.+\))?:"; then
+              FIX=true
+            fi
+          done <<< "$COMMITS"
+
+          # ── 3. Determine the bump ──────────────────────────────────────────
+          MAJOR=$(echo "$LAST_TAG" | sed 's/v//' | cut -d. -f1)
+          MINOR=$(echo "$LAST_TAG" | sed 's/v//' | cut -d. -f2)
+          PATCH=$(echo "$LAST_TAG" | sed 's/v//' | cut -d. -f3)
+
+          if [ "$BREAKING" = true ]; then
+            MAJOR=$(( MAJOR + 1 ))
+            MINOR=0
+            PATCH=0
+            BUMP="major"
+          elif [ "$FEAT" = true ]; then
+            MINOR=$(( MINOR + 1 ))
+            PATCH=0
+            BUMP="minor"
+          elif [ "$FIX" = true ]; then
+            PATCH=$(( PATCH + 1 ))
+            BUMP="patch"
+          else
+            # Only chore/docs/refactor/etc — no version bump warranted.
+            # Reuse the last GA version (e.g. infrastructure-only changes).
+            BUMP="none"
+          fi
+
+          NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bump type: $BUMP → next version: v${NEXT_VERSION}"
+
+          # ── 4. Compute the next RC index for this version ──────────────────
           LAST_RC=$(git tag --list "v${NEXT_VERSION}-rc.*" \
             | sed "s/v${NEXT_VERSION}-rc\.//" \
             | sort -n \
