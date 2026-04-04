@@ -28,7 +28,6 @@ jobs:
             | tail -1)
 
           if [ -z "$LAST_TAG" ]; then
-            # No GA release yet — start from the manifest version
             LAST_TAG="v$(jq -r '.["."]' .github/.release-please-manifest.json)"
             echo "No GA tag found, using manifest version as base: $LAST_TAG"
           else
@@ -43,7 +42,6 @@ jobs:
           FIX=false
 
           while IFS= read -r msg; do
-            # Breaking change: footer "BREAKING CHANGE:" or "!" after type
             if echo "$msg" | grep -qE "^[a-z]+(\(.+\))?!:|BREAKING CHANGE:"; then
               BREAKING=true
             elif echo "$msg" | grep -qE "^feat(\(.+\))?:"; then
@@ -71,9 +69,14 @@ jobs:
             PATCH=$(( PATCH + 1 ))
             BUMP="patch"
           else
-            # Only chore/docs/refactor/etc — no version bump warranted.
-            # Reuse the last GA version (e.g. infrastructure-only changes).
             BUMP="none"
+          fi
+
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+          if [ "$BUMP" = "none" ]; then
+            echo "No releasable commits found (only chore/docs/refactor/etc). Skipping RC tag."
+            exit 0
           fi
 
           NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
@@ -96,6 +99,7 @@ jobs:
           echo "Computed RC tag: $TAG"
 
       - name: Push RC tag
+        if: steps.rc_tag.outputs.bump != 'none'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -104,6 +108,7 @@ jobs:
           git push origin "$TAG"
 
       - name: Create GitHub pre-release
+        if: steps.rc_tag.outputs.bump != 'none'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.rc_tag.outputs.tag }}
