@@ -11,8 +11,7 @@ permissions:
 
 jobs:
   sync:
-    name: Open sync PR and rebase into release-candidate
-    if: github.actor != 'github-actions[bot]'
+    name: Open sync PR and auto-merge into release-candidate
     runs-on: ubuntu-latest
 
     if: github.actor != 'github-actions[bot]' && !startsWith(github.ref_name, 'sync/')
@@ -23,53 +22,15 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_PAT }}
 
-      - name: Check if push is an automated sync
-        id: guard
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.SYNC_PAT }}
-          script: |
-            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha,
-            });
-
-            const automatedTitles = ['chore: sync main into rc', 'chore: sync rc into develop'];
-            const isAutomated = pulls.some(pr => automatedTitles.includes(pr.title));
-            
-            if (isAutomated) {
-              console.log("Push originated from an automated sync PR. Skipping.");
-              core.setOutput('skip', 'true');
-            } else {
-              core.setOutput('skip', 'false');
-            }
-
-      - name: Check for changes
-        if: steps.guard.outputs.skip == 'false'
-        id: diff
-        run: |
-          git fetch origin release-candidate
-          # Count commits in main that are not in release-candidate
-          CHANGES=$(git rev-list --count origin/release-candidate..origin/main)
-          if [ "$CHANGES" -eq "0" ]; then
-            echo "No changes to sync."
-            echo "has_changes=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_changes=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create sync branch
-        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
+      - name: Create sync branch from main
         id: branch
         run: |
-          BRANCH="sync/main-into-rc-${{ github.run_id }}"
+          BRANCH="sync/main-into-release-candidate-${{ github.run_id }}"
           git checkout -b "$BRANCH" origin/main
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Open PR
-        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
+      - name: Open PR targeting release-candidate
         id: pr
         uses: actions/github-script@v7
         with:
@@ -78,45 +39,94 @@ jobs:
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: 'chore: sync main into rc',
+              title: 'chore: sync main into release-candidate',
               body:  'Automated sync of `main` into `release-candidate`.',
               head:  '${{ steps.branch.outputs.branch }}',
               base:  'release-candidate',
             });
+            console.log(`PR #${pr.data.number} created: ${pr.data.html_url}`);
             core.setOutput('number', pr.data.number);
+            core.setOutput('sha', pr.data.head.sha);
 
-      - name: Wait for Mergeability
-        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
+      - name: Wait for all checks to complete
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
           script: |
-            const prNumber = ${{ steps.pr.outputs.number }};
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            
-            for (let i = 0; i < 10; i++) {
-              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
-              console.log(`State: ${pr.mergeable_state}`);
-              // 'clean' means ready, 'blocked' usually means waiting for checks (but we can try to rebase anyway)
-              if (pr.mergeable_state === 'clean' || pr.mergeable_state === 'blocked') return;
-              if (pr.mergeable_state === 'dirty') core.setFailed('Merge conflict detected');
-              await new Promise(r => setTimeout(r, 10000));
+            const owner       = context.repo.owner;
+            const repo        = context.repo.repo;
+            const sha         = '${{ steps.pr.outputs.sha }}';
+            const maxWait     = 30;
+            const interval    = 30;
+            const syncJobName = 'Open sync PR and auto-merge into release-candidate';
+
+            const protection = await github.rest.repos.getBranchProtection({
+              owner, repo, branch: 'release-candidate',
+            });
+            const requiredChecks = protection.data.required_status_checks.contexts;
+            console.log('Required checks:', requiredChecks);
+
+            for (let i = 0; i < maxWait; i++) {
+              const { data: result } = await github.rest.checks.listForRef({
+                owner, repo, ref: sha,
+              });
+
+              const runs            = result.check_runs.filter(r => r.name !== syncJobName);
+              const required        = runs.filter(r => requiredChecks.includes(r.name));
+              const others          = runs.filter(r => !requiredChecks.includes(r.name));
+              const requiredPending = required.filter(r => r.status !== 'completed');
+              const requiredFailed  = required.filter(r => r.status === 'completed' && r.conclusion !== 'success');
+              const othersPending   = others.filter(r => r.status !== 'completed');
+
+              console.log(
+                `[${i + 1}/${maxWait}]`,
+                `Required → pending: ${requiredPending.length}, failed: ${requiredFailed.length} |`,
+                `Others → pending: ${othersPending.length}`
+              );
+
+              if (requiredFailed.length > 0) {
+                core.setFailed(`Required checks failed: ${requiredFailed.map(r => r.name).join(', ')}`);
+                return;
+              }
+
+              if (requiredPending.length === 0 && required.length === requiredChecks.length && othersPending.length === 0) {
+                console.log('All required checks passed and all other checks completed. Ready to merge.');
+                return;
+              }
+
+              await new Promise(r => setTimeout(r, interval * 1000));
             }
 
-      - name: Rebase and Merge
-        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
+            core.setFailed(`Checks did not complete within ${maxWait * interval / 60} minutes.`);
+
+      - name: Squash and merge the PR
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
           script: |
             await github.rest.pulls.merge({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: ${{ steps.pr.outputs.number }},
-              merge_method: 'rebase',
+              owner:          context.repo.owner,
+              repo:           context.repo.repo,
+              pull_number:    ${{ steps.pr.outputs.number }},
+              merge_method:   'squash',
+              commit_title:   'chore: sync main into release-candidate',
+              commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
+            console.log('PR squash-merged successfully.');
 
-      - name: Cleanup Branch
-        if: steps.branch.outputs.branch != '' && always()
-        run: git push origin --delete ${{ steps.branch.outputs.branch }}
+      - name: Delete sync branch
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   'heads/${{ steps.branch.outputs.branch }}',
+              });
+              console.log('Sync branch deleted.');
+            } catch (e) {
+              console.log('Branch already deleted or not found:', e.message);
+            }
