@@ -27,12 +27,14 @@ jobs:
 
       - name: Merge release-candidate into develop
         run: |
+          COMMIT_MSG="chore: sync release-candidate into develop
+
+          Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
           git checkout develop
           git pull origin develop
           git merge origin/release-candidate \
             --no-ff \
             --signoff \
-            -m "chore: sync release-candidate into develop
-
-Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+            -m "$COMMIT_MSG"
           git push origin develop
