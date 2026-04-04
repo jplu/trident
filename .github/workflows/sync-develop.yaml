@@ -23,7 +23,7 @@ jobs:
       - name: Create sync branch from release-candidate
         id: branch
         run: |
-          BRANCH="sync/release-candidate-into-develop-${{ github.run_id }}"
+          BRANCH="sync/rc-into-develop-${{ github.run_id }}"
           git checkout -b "$BRANCH" origin/release-candidate
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
@@ -37,7 +37,7 @@ jobs:
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
-              title: 'chore: sync release-candidate into develop',
+              title: 'chore: sync rc into develop',
               body:  'Automated sync of `release-candidate` into `develop`.',
               head:  '${{ steps.branch.outputs.branch }}',
               base:  'develop',
@@ -53,8 +53,8 @@ jobs:
             const prNumber = ${{ steps.pr.outputs.number }};
             const owner    = context.repo.owner;
             const repo     = context.repo.repo;
-            const maxWait  = 30;   // maximum attempts
-            const interval = 30;   // seconds between polls
+            const maxWait  = 30;
+            const interval = 30;
 
             for (let i = 0; i < maxWait; i++) {
               const { data: pr } = await github.rest.pulls.get({
@@ -73,10 +73,6 @@ jobs:
                 return;
               }
 
-              if (pr.mergeable_state === 'blocked') {
-                // Still waiting for checks — keep polling
-              }
-
               await new Promise(r => setTimeout(r, interval * 1000));
             }
 
@@ -88,11 +84,11 @@ jobs:
           github-token: ${{ secrets.SYNC_PAT }}
           script: |
             await github.rest.pulls.merge({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              pull_number:  ${{ steps.pr.outputs.number }},
-              merge_method: 'merge',
-              commit_title: 'chore: sync release-candidate into develop',
+              owner:          context.repo.owner,
+              repo:           context.repo.repo,
+              pull_number:    ${{ steps.pr.outputs.number }},
+              merge_method:   'merge',
+              commit_title:   'chore: sync rc into develop',
               commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
             console.log('PR merged successfully.');
