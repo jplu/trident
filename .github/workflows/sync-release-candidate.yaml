@@ -20,7 +20,20 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_PAT }}
 
+      - name: Skip if push is from a sync workflow
+        id: guard
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          echo "Last commit message: $COMMIT_MSG"
+          if [ "$COMMIT_MSG" = "chore: sync main into release-candidate" ] || [ "$COMMIT_MSG" = "chore: sync release-candidate into develop" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Push originated from a sync workflow. Skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create sync branch from main
+        if: steps.guard.outputs.skip == 'false'
         id: branch
         run: |
           BRANCH="sync/main-into-release-candidate-${{ github.run_id }}"
@@ -29,6 +42,7 @@ jobs:
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Open PR targeting release-candidate
+        if: steps.guard.outputs.skip == 'false'
         id: pr
         uses: actions/github-script@v7
         with:
@@ -47,6 +61,7 @@ jobs:
             core.setOutput('sha', pr.data.head.sha);
 
       - name: Wait for all checks to complete
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
@@ -98,6 +113,7 @@ jobs:
             core.setFailed(`Checks did not complete within ${maxWait * interval / 60} minutes.`);
 
       - name: Squash and merge the PR
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
@@ -113,7 +129,7 @@ jobs:
             console.log('PR squash-merged successfully.');
 
       - name: Delete sync branch
-        if: always()
+        if: steps.guard.outputs.skip == 'false' && always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
