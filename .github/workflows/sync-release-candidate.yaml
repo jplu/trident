@@ -112,7 +112,7 @@ jobs:
               owner:          context.repo.owner,
               repo:           context.repo.repo,
               pull_number:    ${{ steps.pr.outputs.number }},
-              merge_method:   'squash',
+              merge_method:   'merge',
               commit_title:   'chore: sync main into release-candidate',
               commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
