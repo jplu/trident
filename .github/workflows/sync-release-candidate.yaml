@@ -73,37 +73,28 @@ jobs:
             const interval    = 30;
             const syncJobName = 'Open sync PR and auto-merge into release-candidate';
 
-            const protection = await github.rest.repos.getBranchProtection({
-              owner, repo, branch: 'release-candidate',
-            });
-            const requiredChecks = protection.data.required_status_checks.contexts;
-            console.log('Required checks:', requiredChecks);
+            // Give GitHub a moment to register checks before polling
+            await new Promise(r => setTimeout(r, interval * 1000));
 
             for (let i = 0; i < maxWait; i++) {
               const { data: result } = await github.rest.checks.listForRef({
                 owner, repo, ref: sha,
               });
 
-              const runs            = result.check_runs.filter(r => r.name !== syncJobName);
-              const required        = runs.filter(r => requiredChecks.includes(r.name));
-              const others          = runs.filter(r => !requiredChecks.includes(r.name));
-              const requiredPending = required.filter(r => r.status !== 'completed');
-              const requiredFailed  = required.filter(r => r.status === 'completed' && r.conclusion !== 'success');
-              const othersPending   = others.filter(r => r.status !== 'completed');
+              // Exclude the sync job itself to avoid self-reference
+              const runs    = result.check_runs.filter(r => r.name !== syncJobName);
+              const pending = runs.filter(r => r.status !== 'completed');
+              const failed  = runs.filter(r => r.status === 'completed' && r.conclusion === 'failure');
 
-              console.log(
-                `[${i + 1}/${maxWait}]`,
-                `Required → pending: ${requiredPending.length}, failed: ${requiredFailed.length} |`,
-                `Others → pending: ${othersPending.length}`
-              );
+              console.log(`[${i + 1}/${maxWait}] Total: ${runs.length}, Pending: ${pending.length}, Failed: ${failed.length}`);
 
-              if (requiredFailed.length > 0) {
-                core.setFailed(`Required checks failed: ${requiredFailed.map(r => r.name).join(', ')}`);
+              if (failed.length > 0) {
+                core.setFailed(`Checks failed: ${failed.map(r => r.name).join(', ')}`);
                 return;
               }
 
-              if (requiredPending.length === 0 && required.length === requiredChecks.length && othersPending.length === 0) {
-                console.log('All required checks passed and all other checks completed. Ready to merge.');
+              if (runs.length > 0 && pending.length === 0) {
+                console.log('All checks completed. Ready to merge.');
                 return;
               }
 
