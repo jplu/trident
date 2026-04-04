@@ -12,6 +12,7 @@ permissions:
 jobs:
   sync:
     name: Open sync PR and rebase into release-candidate
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
 
     steps:
@@ -31,11 +32,33 @@ jobs:
               repo: context.repo.repo,
               commit_sha: context.sha,
             });
-            const isAutomated = pulls.some(pr => pr.title === 'chore: sync main into rc');
-            core.setOutput('skip', isAutomated ? 'true' : 'false');
 
-      - name: Create sync branch from main
+            const automatedTitles = ['chore: sync main into rc', 'chore: sync rc into develop'];
+            const isAutomated = pulls.some(pr => automatedTitles.includes(pr.title));
+            
+            if (isAutomated) {
+              console.log("Push originated from an automated sync PR. Skipping.");
+              core.setOutput('skip', 'true');
+            } else {
+              core.setOutput('skip', 'false');
+            }
+
+      - name: Check for changes
         if: steps.guard.outputs.skip == 'false'
+        id: diff
+        run: |
+          git fetch origin release-candidate
+          # Count commits in main that are not in release-candidate
+          CHANGES=$(git rev-list --count origin/release-candidate..origin/main)
+          if [ "$CHANGES" -eq "0" ]; then
+            echo "No changes to sync."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create sync branch
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
         id: branch
         run: |
           BRANCH="sync/main-into-rc-${{ github.run_id }}"
@@ -43,8 +66,8 @@ jobs:
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Open PR targeting release-candidate
-        if: steps.guard.outputs.skip == 'false'
+      - name: Open PR
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
         id: pr
         uses: actions/github-script@v7
         with:
@@ -60,47 +83,38 @@ jobs:
             });
             core.setOutput('number', pr.data.number);
 
-      - name: Wait for required status checks
-        if: steps.guard.outputs.skip == 'false'
+      - name: Wait for Mergeability
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
           script: |
             const prNumber = ${{ steps.pr.outputs.number }};
-            const maxWait = 30;
-            for (let i = 0; i < maxWait; i++) {
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner, repo: context.repo.repo, pull_number: prNumber,
-              });
-              if (pr.mergeable_state === 'clean') return;
-              if (pr.mergeable_state === 'dirty') core.setFailed('Merge conflicts detected.');
-              await new Promise(r => setTimeout(r, 30000));
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            for (let i = 0; i < 10; i++) {
+              const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+              console.log(`State: ${pr.mergeable_state}`);
+              // 'clean' means ready, 'blocked' usually means waiting for checks (but we can try to rebase anyway)
+              if (pr.mergeable_state === 'clean' || pr.mergeable_state === 'blocked') return;
+              if (pr.mergeable_state === 'dirty') core.setFailed('Merge conflict detected');
+              await new Promise(r => setTimeout(r, 10000));
             }
-            core.setFailed('Checks timed out.');
 
-      - name: Rebase the PR
-        if: steps.guard.outputs.skip == 'false'
+      - name: Rebase and Merge
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.has_changes == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
           script: |
             await github.rest.pulls.merge({
-              owner:        context.repo.owner,
-              repo:         context.repo.repo,
-              pull_number:  ${{ steps.pr.outputs.number }},
-              merge_method: 'rebase', // Changed from 'merge' to 'rebase'
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: ${{ steps.pr.outputs.number }},
+              merge_method: 'rebase',
             });
 
-      - name: Delete sync branch
-        if: steps.guard.outputs.skip == 'false' && always()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.SYNC_PAT }}
-          script: |
-            try {
-              await github.rest.git.deleteRef({
-                owner: context.repo.owner,
-                repo:  context.repo.repo,
-                ref:   'heads/${{ steps.branch.outputs.branch }}',
-              });
-            } catch (e) {}
+      - name: Cleanup Branch
+        if: steps.branch.outputs.branch != '' && always()
+        run: git push origin --delete ${{ steps.branch.outputs.branch }}
