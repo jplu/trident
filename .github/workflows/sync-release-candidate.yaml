@@ -23,7 +23,11 @@ jobs:
       - name: Create sync branch from main
         id: branch
         run: |
+<<<<<<< HEAD
+          BRANCH="sync/main-into-rc-${{ github.run_id }}"
+=======
           BRANCH="sync/main-into-release-candidate-${{ github.run_id }}"
+>>>>>>> 8dd5a9a (chore: automate branch sync across main, release-candidate and develop (#20))
           git checkout -b "$BRANCH" origin/main
           git push origin "$BRANCH"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
@@ -37,7 +41,11 @@ jobs:
             const pr = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo:  context.repo.repo,
+<<<<<<< HEAD
+              title: 'chore: sync main into rc',
+=======
               title: 'chore: sync main into release-candidate',
+>>>>>>> 8dd5a9a (chore: automate branch sync across main, release-candidate and develop (#20))
               body:  'Automated sync of `main` into `release-candidate`.',
               head:  '${{ steps.branch.outputs.branch }}',
               base:  'release-candidate',
@@ -53,8 +61,13 @@ jobs:
             const prNumber = ${{ steps.pr.outputs.number }};
             const owner    = context.repo.owner;
             const repo     = context.repo.repo;
+<<<<<<< HEAD
+            const maxWait  = 30;
+            const interval = 30;
+=======
             const maxWait  = 30;   // maximum attempts
             const interval = 30;   // seconds between polls
+>>>>>>> 8dd5a9a (chore: automate branch sync across main, release-candidate and develop (#20))
 
             for (let i = 0; i < maxWait; i++) {
               const { data: pr } = await github.rest.pulls.get({
@@ -88,11 +101,18 @@ jobs:
               repo:           context.repo.repo,
               pull_number:    ${{ steps.pr.outputs.number }},
               merge_method:   'merge',
+<<<<<<< HEAD
+              commit_title:   'chore: sync main into rc',
+              commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
+            });
+            console.log('PR merged successfully.');
+=======
               commit_title:   'chore: sync main into release-candidate',
               commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
             console.log('PR merged successfully.');
             // Merging into release-candidate triggers sync-develop.yml automatically.
+>>>>>>> 8dd5a9a (chore: automate branch sync across main, release-candidate and develop (#20))
 
       - name: Delete sync branch
         if: always()
