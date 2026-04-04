@@ -110,6 +110,7 @@ jobs:
 
               await new Promise(r => setTimeout(r, interval * 1000));
             }
+            core.setFailed('Checks timed out.');
 
             core.setFailed(`Checks did not complete within ${maxWait * interval / 60} minutes.`);
 
@@ -123,7 +124,7 @@ jobs:
               owner:          context.repo.owner,
               repo:           context.repo.repo,
               pull_number:    ${{ steps.pr.outputs.number }},
-              merge_method:   'squash',
+              merge_method:   'merge',
               commit_title:   'chore: sync release-candidate into develop',
               commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
