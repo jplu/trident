@@ -14,15 +14,37 @@ jobs:
     name: Open sync PR and auto-merge into develop
     runs-on: ubuntu-latest
 
-    if: github.actor != 'github-actions[bot]' && !startsWith(github.ref_name, 'sync/')
-
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.SYNC_PAT }}
 
+      - name: Check if push is an automated sync
+        id: guard
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              commit_sha: context.sha,
+            });
+
+            // Check if any associated PR has the specific sync title
+            const isAutomated = pulls.some(pr => pr.title === 'chore: sync rc into develop');
+            
+            if (isAutomated) {
+              console.log("Detected push from 'chore: sync rc into develop'. Skipping to prevent loop.");
+            } else {
+              console.log("Standard push detected. Proceeding with sync.");
+            }
+            
+            core.setOutput('skip', isAutomated ? 'true' : 'false');
+
       - name: Create sync branch from release-candidate
+        if: steps.guard.outputs.skip == 'false'
         id: branch
         run: |
           BRANCH="sync/rc-into-develop-${{ github.run_id }}"
@@ -31,6 +53,7 @@ jobs:
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Open PR targeting develop
+        if: steps.guard.outputs.skip == 'false'
         id: pr
         uses: actions/github-script@v7
         with:
@@ -48,6 +71,7 @@ jobs:
             core.setOutput('number', pr.data.number);
 
       - name: Wait for required status checks to pass
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
@@ -81,6 +105,7 @@ jobs:
             core.setFailed(`Status checks did not pass within ${maxWait * interval / 60} minutes.`);
 
       - name: Merge the PR
+        if: steps.guard.outputs.skip == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
@@ -96,7 +121,7 @@ jobs:
             console.log('PR merged successfully.');
 
       - name: Delete sync branch
-        if: always()
+        if: steps.guard.outputs.skip == 'false' && always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
