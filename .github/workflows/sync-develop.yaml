@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   sync:
-    name: Open sync PR and rebase into develop
+    name: Open sync PR and auto-merge into develop
     runs-on: ubuntu-latest
 
     steps:
@@ -20,22 +20,7 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.SYNC_PAT }}
 
-      - name: Check if push is an automated sync
-        id: guard
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.SYNC_PAT }}
-          script: |
-            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              commit_sha: context.sha,
-            });
-            const isAutomated = pulls.some(pr => pr.title === 'chore: sync rc into develop');
-            core.setOutput('skip', isAutomated ? 'true' : 'false');
-
       - name: Create sync branch from release-candidate
-        if: steps.guard.outputs.skip == 'false'
         id: branch
         run: |
           BRANCH="sync/release-candidate-into-develop-${{ github.run_id }}"
@@ -44,7 +29,6 @@ jobs:
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
 
       - name: Open PR targeting develop
-        if: steps.guard.outputs.skip == 'false'
         id: pr
         uses: actions/github-script@v7
         with:
@@ -58,6 +42,7 @@ jobs:
               head:  '${{ steps.branch.outputs.branch }}',
               base:  'develop',
             });
+            console.log(`PR #${pr.data.number} created: ${pr.data.html_url}`);
             core.setOutput('number', pr.data.number);
             core.setOutput('sha', pr.data.head.sha);
 
@@ -120,7 +105,7 @@ jobs:
             console.log('PR squash-merged successfully.');
 
       - name: Delete sync branch
-        if: steps.guard.outputs.skip == 'false' && always()
+        if: always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.SYNC_PAT }}
