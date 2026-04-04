@@ -81,18 +81,7 @@ jobs:
                 owner, repo, ref: sha,
               });
 
-              // Exclude the sync job itself to avoid self-reference
-              const allRuns = result.check_runs.filter(r => r.name !== syncJobName);
-
-              // Deduplicate by name — keep only the most recent run per check name
-              const latest = new Map();
-              for (const run of allRuns) {
-                const existing = latest.get(run.name);
-                if (!existing || new Date(run.started_at) > new Date(existing.started_at)) {
-                  latest.set(run.name, run);
-                }
-              }
-              const runs    = Array.from(latest.values());
+              const runs    = result.check_runs.filter(r => r.name !== syncJobName);
               const pending = runs.filter(r => r.status !== 'completed');
               const failed  = runs.filter(r => r.status === 'completed' && r.conclusion === 'failure');
 
@@ -123,7 +112,7 @@ jobs:
               owner:          context.repo.owner,
               repo:           context.repo.repo,
               pull_number:    ${{ steps.pr.outputs.number }},
-              merge_method:   'squash',
+              merge_method:   'merge',
               commit_title:   'chore: sync main into release-candidate',
               commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
             });
