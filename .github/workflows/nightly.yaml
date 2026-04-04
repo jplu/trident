@@ -1,0 +1,164 @@
+name: Nightly — Dev Release
+
+on:
+  schedule:
+    - cron: "0 22 * * *"   # midnight Paris time during DST (UTC+2, late March to late October)
+    - cron: "0 23 * * *"   # midnight Paris time during standard time (UTC+1, late October to late March)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-commits:
+    name: Check for commits in the last 24 hours
+    runs-on: ubuntu-latest
+    outputs:
+      has_commits: ${{ steps.check.outputs.has_commits }}
+      tag: ${{ steps.check.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Install Paris timezone data
+        run: sudo apt-get install -y tzdata
+
+      - name: Check for commits in the last 24 hours
+        id: check
+        run: |
+          SINCE=$(date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
+
+          COMMIT_COUNT=$(git log origin/develop --oneline --after="$SINCE" | wc -l | tr -d ' ')
+          echo "Commits in the last 24 hours: $COMMIT_COUNT"
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "has_commits=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Tag date reflects the Paris local date at the time of the run
+          TAG="dev-NIGHTLY-$(TZ="Europe/Paris" date +"%d-%m-%y")"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Nightly tag: $TAG"
+
+  build:
+    name: Build & test
+    needs: check-commits
+    if: needs.check-commits.outputs.has_commits == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.24.x', '1.25.x' ]
+        os: [ ubuntu-latest, macos-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: develop
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run linter
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25.x'
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+          args: --timeout=3m ./...
+
+      - name: Run tests with coverage
+        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+      - name: Upload coverage artifact
+        if: matrix.os == 'ubuntu-latest' && matrix.go-version == '1.25.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-nightly-${{ github.run_id }}
+          path: coverage.txt
+          retention-days: 7
+
+      - name: Build all packages
+        run: go build -v ./...
+
+  publish:
+    name: Publish nightly release
+    needs: [check-commits, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Install Paris timezone data
+        run: sudo apt-get install -y tzdata
+
+      - name: Collect commits from the last 24 hours
+        id: changelog
+        run: |
+          SINCE=$(date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
+          COMMITS=$(git log origin/develop --oneline --after="$SINCE" \
+            --pretty=format:"- %s (%h)")
+          {
+            echo "commits<<EOF"
+            echo "$COMMITS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          DISPLAY_DATE=$(TZ="Europe/Paris" date +"%d %B %Y")
+          echo "display_date=$DISPLAY_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Delete existing tag if present
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.check-commits.outputs.tag }}"
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            git push origin ":refs/tags/${TAG}"
+            echo "Deleted existing tag $TAG"
+          fi
+
+      - name: Push nightly tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.check-commits.outputs.tag }}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create nightly pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.check-commits.outputs.tag }}
+          name: "Nightly ${{ needs.check-commits.outputs.tag }}"
+          body: |
+            🌙 Automated nightly build from `develop` — ${{ steps.changelog.outputs.display_date }}
+
+            > ⚠️ This is a development snapshot, not intended for production use.
+
+            ### Commits included
+            ${{ steps.changelog.outputs.commits }}
+          prerelease: true
