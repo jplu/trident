@@ -1,0 +1,127 @@
+name: Nightly — Dev Release
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-commits:
+    name: Check for commits and generate tag
+    runs-on: ubuntu-latest
+    outputs:
+      has_commits: ${{ steps.check.outputs.has_commits }}
+      tag: ${{ steps.check.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Check for commits in the last 24 hours
+        id: check
+        run: |
+          SINCE=$(date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_COUNT=$(git log origin/develop --oneline --after="$SINCE" | wc -l | tr -d ' ')
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "has_commits=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          DATE_STAMP=$(TZ="Europe/Paris" date +"%Y%m%d")
+          TAG="v0.0.0-${DATE_STAMP}-dev"
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Nightly tag: $TAG"
+
+  build:
+    name: Build & test
+    needs: check-commits
+    if: needs.check-commits.outputs.has_commits == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: [ '1.25.x', '1.26.x' ]
+        os: [ ubuntu-latest, macos-latest ]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: develop
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        run: go test -v -race ./...
+
+      - name: Build
+        run: go build -v ./...
+
+  publish:
+    name: Publish nightly release
+    if: needs.check-commits.outputs.has_commits == 'true'
+    needs: [check-commits, build]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: develop
+
+      - name: Collect commits for release notes
+        id: changelog
+        run: |
+          SINCE=$(date -u -d "24 hours ago" +"%Y-%m-%dT%H:%M:%SZ")
+          COMMITS=$(git log origin/develop --oneline --after="$SINCE" --pretty=format:"- %s (%h)")
+          {
+            echo "commits<<EOF"
+            echo "$COMMITS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          DISPLAY_DATE=$(TZ="Europe/Paris" date +"%d %B %Y")
+          echo "display_date=$DISPLAY_DATE" >> "$GITHUB_OUTPUT"
+
+      - name: Manage Tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ needs.check-commits.outputs.tag }}"
+          # Delete tag if it already exists for today (e.g. on manual re-run)
+          if git ls-remote --tags origin | grep -q "refs/tags/${TAG}$"; then
+            git push origin ":refs/tags/${TAG}"
+          fi
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create nightly GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.check-commits.outputs.tag }}
+          name: "Nightly Build: ${{ needs.check-commits.outputs.tag }}"
+          draft: false
+          prerelease: true
+          body: |
+            🌙 **Automated Nightly Build** — ${{ steps.changelog.outputs.display_date }}
+
+            > ⚠️ This is a development snapshot, not intended for production use.
+            
+            To use this specific version:
+            ```bash
+            go get github.com/${{ github.repository }}@${{ needs.check-commits.outputs.tag }}
+            ```
+
+            ### Commits in this build:
+            ${{ steps.changelog.outputs.commits }}

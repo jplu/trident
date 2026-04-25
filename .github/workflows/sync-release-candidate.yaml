@@ -1,0 +1,160 @@
+name: Sync — main into release-candidate
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    name: Open sync PR and auto-merge into release-candidate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PAT }}
+
+      - name: Skip if push is from a sync workflow
+        id: guard
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          echo "Last commit message: $COMMIT_MSG"
+          if [ "$COMMIT_MSG" = "chore: sync main into release-candidate" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Push originated from a sync workflow. Skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check if there are differences to sync
+        if: steps.guard.outputs.skip == 'false'
+        id: diff
+        run: |
+          COUNT=$(git rev-list --count origin/release-candidate..origin/main)
+          echo "Commits ahead: $COUNT"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "nothing_to_sync=true" >> "$GITHUB_OUTPUT"
+            echo "Nothing to sync. Skipping."
+          else
+            echo "nothing_to_sync=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create sync branch from main
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.nothing_to_sync == 'false'
+        id: branch
+        run: |
+          BRANCH="sync/main-into-release-candidate-${{ github.run_id }}"
+          git checkout -b "$BRANCH" origin/main
+          git push origin "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Open PR targeting release-candidate
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.nothing_to_sync == 'false'
+        id: pr
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: 'chore: sync main into release-candidate',
+              body:  'Automated sync of `main` into `release-candidate`.',
+              head:  '${{ steps.branch.outputs.branch }}',
+              base:  'release-candidate',
+            });
+            console.log(`PR #${pr.data.number} created: ${pr.data.html_url}`);
+            core.setOutput('number', pr.data.number);
+            core.setOutput('sha', pr.data.head.sha);
+
+      - name: Wait for all checks to complete
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.nothing_to_sync == 'false'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            const owner       = context.repo.owner;
+            const repo        = context.repo.repo;
+            const sha         = '${{ steps.pr.outputs.sha }}';
+            const maxWait     = 30;
+            const interval    = 30;
+            const syncJobName = 'Open sync PR and auto-merge into release-candidate';
+
+            // Give GitHub a moment to register checks before polling
+            await new Promise(r => setTimeout(r, interval * 1000));
+
+            for (let i = 0; i < maxWait; i++) {
+              const { data: result } = await github.rest.checks.listForRef({
+                owner, repo, ref: sha,
+              });
+
+              // Exclude the sync job itself to avoid self-reference
+              const allRuns = result.check_runs.filter(r => r.name !== syncJobName);
+
+              // Deduplicate by name — keep only the most recent run per check name
+              const latest = new Map();
+              for (const run of allRuns) {
+                const existing = latest.get(run.name);
+                if (!existing || new Date(run.started_at) > new Date(existing.started_at)) {
+                  latest.set(run.name, run);
+                }
+              }
+              const runs    = Array.from(latest.values());
+              const pending = runs.filter(r => r.status !== 'completed');
+              const failed  = runs.filter(r => r.status === 'completed' && r.conclusion === 'failure');
+
+              console.log(`[${i + 1}/${maxWait}] Total: ${runs.length}, Pending: ${pending.length}, Failed: ${failed.length}`);
+
+              if (failed.length > 0) {
+                core.setFailed(`Checks failed: ${failed.map(r => r.name).join(', ')}`);
+                return;
+              }
+
+              if (runs.length > 0 && pending.length === 0) {
+                console.log('All checks completed. Ready to merge.');
+                return;
+              }
+
+              await new Promise(r => setTimeout(r, interval * 1000));
+            }
+
+            core.setFailed(`Checks did not complete within ${maxWait * interval / 60} minutes.`);
+
+      - name: Merge the PR
+        if: steps.guard.outputs.skip == 'false' && steps.diff.outputs.nothing_to_sync == 'false'
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            await github.rest.pulls.merge({
+              owner:          context.repo.owner,
+              repo:           context.repo.repo,
+              pull_number:    ${{ steps.pr.outputs.number }},
+              merge_method:   'merge',
+              commit_title:   'chore: sync main into release-candidate',
+              commit_message: 'Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>',
+            });
+            console.log('PR merged successfully.');
+
+      - name: Delete sync branch
+        if: steps.guard.outputs.skip == 'false' && steps.branch.outputs.branch != '' && always()
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.SYNC_PAT }}
+          script: |
+            try {
+              await github.rest.git.deleteRef({
+                owner: context.repo.owner,
+                repo:  context.repo.repo,
+                ref:   'heads/${{ steps.branch.outputs.branch }}',
+              });
+              console.log('Sync branch deleted.');
+            } catch (e) {
+              console.log('Branch already deleted or not found:', e.message);
+            }
