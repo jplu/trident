@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
-// test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package datatypes
 
 import "testing"
