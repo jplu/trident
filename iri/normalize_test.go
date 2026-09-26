@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -23,9 +23,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// TestRef_Normalize tests the syntax-based and scheme-based normalization of a Ref.
-// Based on RFC 3986, Section 6.2.2 and 6.2.3: Syntax-Based and Scheme-Based Normalization.
-func TestRef_Normalize(t *testing.T) {
+// TestRefNormalize tests the syntax-based and scheme-based normalization of a Ref.
+func TestRefNormalize(t *testing.T) {
 	testCases := []struct {
 		name     string
 		input    string
@@ -79,7 +78,11 @@ func TestRef_Normalize(t *testing.T) {
 			ref := mustParseRef(t, tc.input)
 			normalizedRef := ref.Normalize()
 			if normalizedRef.String() != tc.expected {
-				t.Errorf("Expected normalized IRI '%s', got '%s'", tc.expected, normalizedRef.String())
+				t.Errorf(
+					"Expected normalized IRI '%s', got '%s'",
+					tc.expected,
+					normalizedRef.String(),
+				)
 			}
 		})
 	}
@@ -95,7 +98,6 @@ func TestRef_Normalize(t *testing.T) {
 }
 
 // TestRecomposeNormalizedIRI tests the recomposition of an IRI from normalized components.
-// RFC Reference: RFC 3986, Section 5.3.
 func TestRecomposeNormalizedIRI(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -112,13 +114,69 @@ func TestRecomposeNormalizedIRI(t *testing.T) {
 		hasFrag   bool
 		want      string
 	}{
-		{"Full", "http", true, "user", "host", "80", true, "/p", "q", true, "f", true, "http://user@host:80/p?q#f"},
-		{"No user/port", "http", true, "", "host", "", true, "/p", "q", true, "f", true, "http://host/p?q#f"},
-		{"Scheme relative", "", false, "", "host", "", true, "/p", "", false, "", false, "//host/p"},
+		{
+			"Full",
+			"http",
+			true,
+			"user",
+			"host",
+			"80",
+			true,
+			"/p",
+			"q",
+			true,
+			"f",
+			true,
+			"http://user@host:80/p?q#f",
+		},
+		{
+			"No user/port",
+			"http",
+			true,
+			"",
+			"host",
+			"",
+			true,
+			"/p",
+			"q",
+			true,
+			"f",
+			true,
+			"http://host/p?q#f",
+		},
+		{
+			"Scheme relative",
+			"",
+			false,
+			"",
+			"host",
+			"",
+			true,
+			"/p",
+			"",
+			false,
+			"",
+			false,
+			"//host/p",
+		},
 		{"No authority", "urn", true, "", "", "", false, "a:b", "", false, "", false, "urn:a:b"},
 		{"Path only", "", false, "", "", "", false, "/p", "", false, "", false, "/p"},
 		{"Empty query", "http", true, "", "h", "", true, "/p", "", true, "", false, "http://h/p?"},
-		{"Empty fragment", "http", true, "", "h", "", true, "/p", "", false, "", true, "http://h/p#"},
+		{
+			"Empty fragment",
+			"http",
+			true,
+			"",
+			"h",
+			"",
+			true,
+			"/p",
+			"",
+			false,
+			"",
+			true,
+			"http://h/p#",
+		},
 	}
 
 	for _, tt := range tests {
@@ -138,7 +196,6 @@ func TestRecomposeNormalizedIRI(t *testing.T) {
 }
 
 // TestNormalizeHostAndPort tests case, IDNA, and scheme-based port normalization.
-// Based on RFC 3986, Sections 6.2.2.1 and 6.2.3.
 func TestNormalizeHostAndPort(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -267,7 +324,6 @@ func TestNormalizeHostAndPort(t *testing.T) {
 }
 
 // TestNormalizePercentEncoding tests the normalization of percent-encoded octets.
-// RFC Reference: RFC 3986, Section 6.2.2.2.
 func TestNormalizePercentEncoding(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -310,9 +366,9 @@ func TestNormalizePercentEncoding(t *testing.T) {
 			expected: "a%2Fb.1",
 		},
 		{
-			name:     "Lowercase hex digits are preserved",
+			name:     "Lowercase hex digits are normalized to uppercase",
 			input:    "a%2fb%2e%31",
-			expected: "a%2fb.1",
+			expected: "a%2Fb.1",
 		},
 		{
 			name:     "Invalid encoding - short",
@@ -340,15 +396,19 @@ func TestNormalizePercentEncoding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := normalizePercentEncoding(tc.input)
 			if result != tc.expected {
-				t.Errorf("normalizePercentEncoding(%q) = %q; want %q", tc.input, result, tc.expected)
+				t.Errorf(
+					"normalizePercentEncoding(%q) = %q; want %q",
+					tc.input,
+					result,
+					tc.expected,
+				)
 			}
 		})
 	}
 }
 
-// TestParseNormalizedRef_NFC ensures ParseNormalizedRef applies NFC normalization.
-// RFC Reference: RFC 3987, Sections 3.1 and 5.3.2.2.
-func TestParseNormalizedRef_NFC(t *testing.T) {
+// TestParseNormalizedRefNFC ensures ParseNormalizedRef applies NFC normalization.
+func TestParseNormalizedRefNFC(t *testing.T) {
 	decomposed := "e\u0301"
 	composed := "\u00e9"
 
@@ -367,6 +427,10 @@ func TestParseNormalizedRef_NFC(t *testing.T) {
 
 	expectedStr := "http://example.com/" + composed
 	if ref.String() != expectedStr {
-		t.Errorf("Expected IRI string to be normalized to NFC '%s', got '%s'", expectedStr, ref.String())
+		t.Errorf(
+			"Expected IRI string to be normalized to NFC '%s', got '%s'",
+			expectedStr,
+			ref.String(),
+		)
 	}
 }

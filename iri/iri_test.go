@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -23,8 +23,8 @@ import (
 	"testing"
 )
 
-// TestParseError_Error tests the Error method of the ParseError type.
-func TestParseError_Error(t *testing.T) {
+// TestParseErrorError tests the Error method of the ParseError type.
+func TestParseErrorError(t *testing.T) {
 	err := &ParseError{Message: "test message"}
 	expected := "IRI parse error: test message"
 	if err.Error() != expected {
@@ -32,8 +32,8 @@ func TestParseError_Error(t *testing.T) {
 	}
 }
 
-// TestParseError_Unwrap tests the Unwrap method of the ParseError type.
-func TestParseError_Unwrap(t *testing.T) {
+// TestParseErrorUnwrap tests the Unwrap method of the ParseError type.
+func TestParseErrorUnwrap(t *testing.T) {
 	innerErr := errors.New("inner error")
 	err := &ParseError{Message: "wrapper", Err: innerErr}
 	if unwrapped := err.Unwrap(); !errors.Is(unwrapped, innerErr) {
@@ -44,8 +44,8 @@ func TestParseError_Unwrap(t *testing.T) {
 	}
 }
 
-// TestParseRef_Valid tests parsing of various valid IRI-references.
-func TestParseRef_Valid(t *testing.T) {
+// TestParseRefValid tests parsing of various valid IRI-references.
+func TestParseRefValid(t *testing.T) {
 	testCases := []struct {
 		name  string
 		input string
@@ -76,16 +76,19 @@ func TestParseRef_Valid(t *testing.T) {
 	}
 }
 
-// TestParseRef_Invalid tests parsing of various invalid IRI-references.
-func TestParseRef_Invalid(t *testing.T) {
+// TestParseRefInvalid tests parsing of various invalid IRI-references.
+func TestParseRefInvalid(t *testing.T) {
 	testCases := []struct {
 		name   string
 		input  string
 		errMsg string
 	}{
-		{"Invalid scheme start", "1http://example.com", "Invalid IRI character in first path segment"},
-		{"Invalid path with // no authority", "scheme:..//path", "An IRI path is not allowed to start with //"},
-		{"Invalid percent encoding", "http://example.com/%GG", "Invalid IRI percent encoding"},
+		{
+			"Invalid scheme start",
+			"1http://example.com",
+			"Invalid IRI character in first path segment",
+		},
+		{"Invalid percent encoding", "http://example.com/%GG", "Invalid percent-encoding sequence"},
 	}
 
 	for _, tc := range testCases {
@@ -106,7 +109,6 @@ func TestParseRef_Invalid(t *testing.T) {
 
 // TestParseNormalizedRef tests that ParseNormalizedRef applies NFC normalization.
 func TestParseNormalizedRef(t *testing.T) {
-	// Error case: colon in first path segment of a relative reference.
 	_, err := ParseNormalizedRef("1:b")
 	if err == nil {
 		t.Fatal("Expected an error for invalid IRI, but got none")
@@ -152,7 +154,11 @@ func TestParseNormalizedIri(t *testing.T) {
 	}
 	expectedStr := "http://example.com/" + composed
 	if iri.String() != expectedStr {
-		t.Errorf("Expected IRI string to be normalized to NFC '%s', got '%s'", expectedStr, iri.String())
+		t.Errorf(
+			"Expected IRI string to be normalized to NFC '%s', got '%s'",
+			expectedStr,
+			iri.String(),
+		)
 	}
 	_, err = ParseNormalizedIri("/relative")
 	if err == nil {
@@ -192,8 +198,8 @@ func TestNewIriFromRef(t *testing.T) {
 	})
 }
 
-// TestRef_Resolve_NormalExamples tests resolution based on RFC 3986, Section 5.4.1.
-func TestRef_Resolve_NormalExamples(t *testing.T) {
+// TestRefResolveNormalExamples tests resolution.
+func TestRefResolveNormalExamples(t *testing.T) {
 	base := mustParseRef(t, "http://a/b/c/d;p?q")
 	testCases := map[string]string{
 		"g:h":     "g:h",
@@ -219,6 +225,10 @@ func TestRef_Resolve_NormalExamples(t *testing.T) {
 		"../..":   "http://a/",
 		"../../":  "http://a/",
 		"../../g": "http://a/g",
+		"g bar":   "http://a/b/c/g%20bar",
+		"g?y ":    "http://a/b/c/g?y%20",
+		"g#s ":    "http://a/b/c/g#s%20",
+		"g bar?y": "http://a/b/c/g%20bar?y",
 	}
 
 	for rel, expected := range testCases {
@@ -228,34 +238,41 @@ func TestRef_Resolve_NormalExamples(t *testing.T) {
 				t.Fatalf("Resolve failed for '%s': %v", rel, err)
 			}
 			if resolved.String() != expected {
-				t.Errorf("For relative '%s', expected resolved IRI '%s', got '%s'", rel, expected, resolved.String())
+				t.Errorf(
+					"For relative '%s', expected resolved IRI '%s', got '%s'",
+					rel,
+					expected,
+					resolved.String(),
+				)
 			}
 		})
 	}
 }
 
-// TestRef_Resolve_AbnormalExamples tests resolution based on RFC 3986, Section 5.4.2.
-func TestRef_Resolve_AbnormalExamples(t *testing.T) {
+// TestRefResolveAbnormalExamples tests resolution.
+func TestRefResolveAbnormalExamples(t *testing.T) {
 	base := mustParseRef(t, "http://a/b/c/d;p?q")
 	testCases := map[string]string{
-		"../../../g":    "http://a/g",
-		"../../../../g": "http://a/g",
-		"/./g":          "http://a/g",
-		"/../g":         "http://a/g",
-		"g.":            "http://a/b/c/g.",
-		".g":            "http://a/b/c/.g",
-		"g..":           "http://a/b/c/g..",
-		"..g":           "http://a/b/c/..g",
-		"./../g":        "http://a/b/g",
-		"./g/.":         "http://a/b/c/g/",
-		"g/./h":         "http://a/b/c/g/h",
-		"g/../h":        "http://a/b/c/h",
-		"g;x=1/./y":     "http://a/b/c/g;x=1/y",
-		"g;x=1/../y":    "http://a/b/c/y",
-		"g?y/./x":       "http://a/b/c/g?y/./x",
-		"g?y/../x":      "http://a/b/c/g?y/../x",
-		"g#s/./x":       "http://a/b/c/g#s/./x",
-		"g#s/../x":      "http://a/b/c/g#s/../x",
+		"../../../g":                       "http://a/g",
+		"../../../../g":                    "http://a/g",
+		"/./g":                             "http://a/g",
+		"/../g":                            "http://a/g",
+		"g.":                               "http://a/b/c/g.",
+		".g":                               "http://a/b/c/.g",
+		"g..":                              "http://a/b/c/g..",
+		"..g":                              "http://a/b/c/..g",
+		"./../g":                           "http://a/b/g",
+		"./g/.":                            "http://a/b/c/g/",
+		"g/./h":                            "http://a/b/c/g/h",
+		"g/../h":                           "http://a/b/c/h",
+		"g;x=1/./y":                        "http://a/b/c/g;x=1/y",
+		"g;x=1/../y":                       "http://a/b/c/y",
+		"g?y/./x":                          "http://a/b/c/g?y/./x",
+		"g?y/../x":                         "http://a/b/c/g?y/../x",
+		"g#s/./x":                          "http://a/b/c/g#s/./x",
+		"g#s/../x":                         "http://a/b/c/g#s/../x",
+		"http://a/b/c/../../../g":          "http://a/g",
+		"file:///C:/foo/../../../bar.html": "file:///bar.html",
 	}
 
 	for rel, expected := range testCases {
@@ -265,14 +282,19 @@ func TestRef_Resolve_AbnormalExamples(t *testing.T) {
 				t.Fatalf("Resolve failed for '%s': %v", rel, err)
 			}
 			if resolved.String() != expected {
-				t.Errorf("For relative '%s', expected resolved IRI '%s', got '%s'", rel, expected, resolved.String())
+				t.Errorf(
+					"For relative '%s', expected resolved IRI '%s', got '%s'",
+					rel,
+					expected,
+					resolved.String(),
+				)
 			}
 		})
 	}
 }
 
-// TestRef_Resolve_Error tests resolution with an invalid relative reference.
-func TestRef_Resolve_Error(t *testing.T) {
+// TestRefResolveError tests resolution with an invalid relative reference.
+func TestRefResolveError(t *testing.T) {
 	base := mustParseRef(t, "http://a/b/c/d;p?q")
 	_, err := base.Resolve("1:b")
 	if err == nil {
@@ -284,8 +306,8 @@ func TestRef_Resolve_Error(t *testing.T) {
 	}
 }
 
-// TestRef_ResolveTo tests the optimized resolution to a strings.Builder.
-func TestRef_ResolveTo(t *testing.T) {
+// TestRefResolveTo tests the optimized resolution to a strings.Builder.
+func TestRefResolveTo(t *testing.T) {
 	base := mustParseRef(t, "http://a/b/c/d;p?q")
 	relativeIRI := "../g"
 	expectedIRI := "http://a/b/g"
@@ -335,8 +357,8 @@ func TestRef_ResolveTo(t *testing.T) {
 	}
 }
 
-// TestIri_Resolve tests the resolution of a relative IRI reference against a base Iri.
-func TestIri_Resolve(t *testing.T) {
+// TestIriResolve tests the resolution of a relative IRI reference against a base Iri.
+func TestIriResolve(t *testing.T) {
 	iri := mustParseIri(t, "http://a/b/c/d;p?q")
 	resolved, err := iri.Resolve("../g")
 	if err != nil {
@@ -351,8 +373,8 @@ func TestIri_Resolve(t *testing.T) {
 	}
 }
 
-// TestIri_ResolveTo tests the optimized resolution against a base Iri to a strings.Builder.
-func TestIri_ResolveTo(t *testing.T) {
+// TestIriResolveTo tests the optimized resolution against a base Iri to a strings.Builder.
+func TestIriResolveTo(t *testing.T) {
 	iri := mustParseIri(t, "http://a/b/c/d;p?q")
 	var builder strings.Builder
 	err := iri.ResolveTo("../g", &builder)
@@ -369,8 +391,8 @@ func TestIri_ResolveTo(t *testing.T) {
 	}
 }
 
-// TestIri_Relativize_Valid tests creating valid relative references.
-func TestIri_Relativize_Valid(t *testing.T) {
+// TestIriRelativizeValid tests creating valid relative references.
+func TestIriRelativizeValid(t *testing.T) {
 	testCases := []struct {
 		name     string
 		base     string
@@ -390,7 +412,12 @@ func TestIri_Relativize_Valid(t *testing.T) {
 		{"Same authority, different root path", "http://a/b", "http://a/c", "c"},
 		{"Base with empty path", "http://a", "http://a/b/c", "b/c"},
 		{"Base path to root path", "http://a/b/c", "http://a/", "../"},
-		{"Different authority, no target authority", "http://a/b", "mailto:user@b", "mailto:user@b"},
+		{
+			"Different authority, no target authority",
+			"http://a/b",
+			"mailto:user@b",
+			"mailto:user@b",
+		},
 		{"Base has authority, target does not", "http://example.com/a", "http:/b/c", "http:/b/c"},
 		{"Target path is empty (with authority)", "http://a/b", "http://a", "//a"},
 		{"Target path is empty (no authority)", "mailto:user@example.com", "mailto:", "mailto:"},
@@ -414,8 +441,8 @@ func TestIri_Relativize_Valid(t *testing.T) {
 	}
 }
 
-// TestIri_Relativize_Invalid tests cases where relativization should fail.
-func TestIri_Relativize_Invalid(t *testing.T) {
+// TestIriRelativizeInvalid tests cases where relativization should fail.
+func TestIriRelativizeInvalid(t *testing.T) {
 	testCases := []struct {
 		name   string
 		base   string

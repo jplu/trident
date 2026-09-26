@@ -16,7 +16,17 @@ limitations under the License.
 
 package langtag
 
-import _ "embed" // Note the blank import for go:embed
+// Implementation Note: Blank import for go:embed
+// The "embed" package must be imported, even if blank, to enable compiler support for the //go:embed directive.
+import _ "embed"
 
+// embeddedRegistryData represents the embedded raw IANA Language Subtag Registry data.
+//
+// Specification Reference:
+// RFC 5646 (Section 3.1)
+//
+// Representation:
+// A UTF-8 encoded byte slice of the record-jar formatted IANA Language Subtag Registry file.
+//
 //go:embed language-subtag-registry
 var embeddedRegistryData []byte

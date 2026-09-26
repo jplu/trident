@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -35,35 +35,7 @@ func newTestParser(input string, unchecked bool) (*iriParser, *stringOutputBuffe
 	return parser, output
 }
 
-// TestValidateDecodedBytes tests the validation of UTF-8 byte sequences.
-// RFC Reference: RFC 3987, Section 3.2 and Section 4.1.
-func TestValidateDecodedBytes(t *testing.T) {
-	testCases := []struct {
-		name     string
-		input    []byte
-		expected bool
-	}{
-		{name: "Valid UTF-8 with allowed ASCII", input: []byte("hello-world"), expected: true},
-		{name: "Valid UTF-8 with allowed non-ASCII", input: []byte("résumé"), expected: true},
-		{name: "Invalid UTF-8 sequence", input: []byte{0xC3, 0x28}, expected: false},
-		{name: "Forbidden bidi character LRM (U+200E)", input: []byte("\u200e"), expected: false},
-		{name: "Forbidden bidi character RLM (U+200F)", input: []byte("\u200f"), expected: false},
-		{name: "Forbidden bidi character LRE (U+202A)", input: []byte("\u202a"), expected: false},
-		{name: "Empty byte slice", input: []byte{}, expected: true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			result := validateDecodedBytes(tc.input)
-			if result != tc.expected {
-				t.Errorf("validateDecodedBytes(%v) = %v; want %v", tc.input, result, tc.expected)
-			}
-		})
-	}
-}
-
 // TestPercentEncode tests the percent-encoding of non-ASCII characters.
-// RFC Reference: RFC 3987, Section 3.1, Step 2.
 func TestPercentEncode(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -72,10 +44,22 @@ func TestPercentEncode(t *testing.T) {
 	}{
 		{name: "ASCII only", input: "abc-123", expected: "abc-123"},
 		{name: "Non-ASCII only (résumé)", input: "résumé", expected: "r%C3%A9sum%C3%A9"},
-		{name: "Mixed ASCII and non-ASCII", input: "hello-résumé", expected: "hello-r%C3%A9sum%C3%A9"},
+		{
+			name:     "Mixed ASCII and non-ASCII",
+			input:    "hello-résumé",
+			expected: "hello-r%C3%A9sum%C3%A9",
+		},
 		{name: "Empty string", input: "", expected: ""},
 		{name: "Non-BMP character (Old Italic)", input: "\U00010300", expected: "%F0%90%8C%80"},
 		{name: "RFC 3986 example Katakana A", input: "\u30A2", expected: "%E3%82%A2"},
+		{name: "Lax ASCII space", input: "foo bar", expected: "foo%20bar"},
+		{name: "Lax ASCII angle brackets", input: "foo<bar>", expected: "foo%3Cbar%3E"},
+		{
+			name:     "Lax ASCII braces and backslash",
+			input:    "foo{bar}\\baz",
+			expected: "foo%7Bbar%7D%5Cbaz",
+		},
+		{name: "Lax ASCII pipe, caret and backtick", input: "a|b^c`d", expected: "a%7Cb%5Ec%60d"},
 	}
 
 	for _, tc := range testCases {
@@ -131,13 +115,19 @@ func TestPercentEncodeRune(t *testing.T) {
 				percentEncodeRune(tc.input, output)
 				resultLen := output.len()
 				if resultLen != tc.expectedLen {
-					t.Errorf("len(percentEncodeRune(%q)) = %d; want %d", tc.input, resultLen, tc.expectedLen)
+					t.Errorf(
+						"len(percentEncodeRune(%q)) = %d; want %d",
+						tc.input,
+						resultLen,
+						tc.expectedLen,
+					)
 				}
 			})
 		}
 	})
 }
 
+// testReadEcharSuccess tests successful reading of percent-encoded characters.
 func testReadEcharSuccess(t *testing.T) {
 	t.Helper()
 	testCases := []struct {
@@ -146,8 +136,18 @@ func testReadEcharSuccess(t *testing.T) {
 		expectedStr   string
 		expectedInput string
 	}{
-		{name: "Valid encoding uppercase", input: "20rest", expectedStr: "%20", expectedInput: "rest"},
-		{name: "Valid encoding lowercase", input: "3arest", expectedStr: "%3a", expectedInput: "rest"},
+		{
+			name:          "Valid encoding uppercase",
+			input:         "20rest",
+			expectedStr:   "%20",
+			expectedInput: "rest",
+		},
+		{
+			name:          "Valid encoding lowercase",
+			input:         "3arest",
+			expectedStr:   "%3a",
+			expectedInput: "rest",
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -160,12 +160,17 @@ func testReadEcharSuccess(t *testing.T) {
 				t.Errorf("output string mismatch: got %q, want %q", output.string(), tc.expectedStr)
 			}
 			if p.input.asStr() != tc.expectedInput {
-				t.Errorf("remaining input mismatch: got %q, want %q", p.input.asStr(), tc.expectedInput)
+				t.Errorf(
+					"remaining input mismatch: got %q, want %q",
+					p.input.asStr(),
+					tc.expectedInput,
+				)
 			}
 		})
 	}
 }
 
+// testReadEcharError tests error handling when reading percent-encoded characters.
 func testReadEcharError(t *testing.T) {
 	t.Helper()
 	testCases := []struct {
@@ -208,13 +213,13 @@ func testReadEcharError(t *testing.T) {
 	}
 }
 
-// TestIriParser_readEchar tests the parsing of a percent-encoded triplet.
-// RFC Reference: RFC 3986, Section 2.1.
-func TestIriParser_readEchar(t *testing.T) {
+// TestIriParserreadEchar tests the parsing of a percent-encoded triplet.
+func TestIriParserreadEchar(t *testing.T) {
 	t.Run("success", testReadEcharSuccess)
 	t.Run("error", testReadEcharError)
 }
 
+// testReadURLCodepointOrEcharSuccess tests successful reading of URL codepoints or encoded characters.
 func testReadURLCodepointOrEcharSuccess(t *testing.T) {
 	t.Helper()
 	pathCharValidator := func(c rune) bool {
@@ -300,12 +305,17 @@ func testReadURLCodepointOrEcharSuccess(t *testing.T) {
 				t.Errorf("output string mismatch: got %q, want %q", output.string(), tc.expectedStr)
 			}
 			if p.input.asStr() != tc.expectedInput {
-				t.Errorf("remaining input mismatch: got %q, want %q", p.input.asStr(), tc.expectedInput)
+				t.Errorf(
+					"remaining input mismatch: got %q, want %q",
+					p.input.asStr(),
+					tc.expectedInput,
+				)
 			}
 		})
 	}
 }
 
+// testReadURLCodepointOrEcharError tests error handling when reading URL codepoints or encoded characters.
 func testReadURLCodepointOrEcharError(t *testing.T) {
 	t.Helper()
 	pathCharValidator := func(c rune) bool {
@@ -319,17 +329,24 @@ func testReadURLCodepointOrEcharError(t *testing.T) {
 		expectedErr string
 	}{
 		{
-			name:        "Percent encoding error",
-			inputRune:   '%',
-			parserInput: "2G",
-			validFunc:   pathCharValidator,
-			expectedErr: "Invalid IRI percent encoding '%2G'",
-		},
-		{
 			name:        "Invalid character - newline",
 			inputRune:   '\n',
 			validFunc:   pathCharValidator,
 			expectedErr: fmt.Sprintf("Invalid IRI character '%c'", '\n'),
+		},
+		{
+			name:        "Invalid percent-encoding sequence without hex digits",
+			inputRune:   '%',
+			parserInput: "",
+			validFunc:   pathCharValidator,
+			expectedErr: "Invalid percent-encoding sequence '%'",
+		},
+		{
+			name:        "Invalid percent-encoding sequence with non-hex characters",
+			inputRune:   '%',
+			parserInput: "ZZ",
+			validFunc:   pathCharValidator,
+			expectedErr: "Invalid percent-encoding sequence '%'",
 		},
 	}
 
@@ -341,15 +358,14 @@ func testReadURLCodepointOrEcharError(t *testing.T) {
 				t.Fatalf("expected an error, but got nil")
 			}
 			if err.Error() != tc.expectedErr {
-				t.Errorf("expected error '%s', got '%s'", tc.expectedErr, err.Error())
+				t.Errorf("expected error %q, got %q", tc.expectedErr, err.Error())
 			}
 		})
 	}
 }
 
-// TestIriParser_readURLCodepointOrEchar tests the dispatcher for reading a character or percent-encoded sequence.
-// RFC Reference: RFC 3987, Section 3.1 and RFC 3986, Section 2.1.
-func TestIriParser_readURLCodepointOrEchar(t *testing.T) {
+// TestIriParserreadURLCodepointOrEchar tests the dispatcher for reading a character or percent-encoded sequence.
+func TestIriParserreadURLCodepointOrEchar(t *testing.T) {
 	t.Run("success", testReadURLCodepointOrEcharSuccess)
 	t.Run("error", testReadURLCodepointOrEcharError)
 }

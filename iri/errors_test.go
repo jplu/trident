@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -23,7 +23,8 @@ import (
 	"testing"
 )
 
-func TestKindError_Error(t *testing.T) {
+// TestKindErrorError validates the string formatting of syntax errors.
+func TestKindErrorError(t *testing.T) {
 	tests := []struct {
 		name     string
 		err      *kindError
@@ -45,8 +46,12 @@ func TestKindError_Error(t *testing.T) {
 			expected: "invalid sequence '%2G'",
 		},
 		{
-			name:     "Character takes precedence over Details",
-			err:      &kindError{message: "invalid character with details", char: '>', details: "some detail"},
+			name: "Character takes precedence over Details",
+			err: &kindError{
+				message: "invalid character with details",
+				char:    '>',
+				details: "some detail",
+			},
 			expected: "invalid character with details '>'",
 		},
 	}
@@ -59,6 +64,42 @@ func TestKindError_Error(t *testing.T) {
 	}
 }
 
+// TestBidiGuidelineErrorError validates the string formatting of bidirectional presentation guideline errors.
+func TestBidiGuidelineErrorError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *BidiGuidelineError
+		expected string
+	}{
+		{
+			name: "Rule 1 Mixed Directionality",
+			err: &BidiGuidelineError{
+				Rule:      "Rule 1",
+				Component: "component1",
+				Message:   "mixed left-to-right and right-to-left characters",
+			},
+			expected: "bidirectional presentation violation (Rule 1) in component 'component1': mixed left-to-right and right-to-left characters",
+		},
+		{
+			name: "Rule 2 Boundary Characters",
+			err: &BidiGuidelineError{
+				Rule:      "Rule 2",
+				Component: "component2",
+				Message:   "right-to-left parts must start with right-to-left characters",
+			},
+			expected: "bidirectional presentation violation (Rule 2) in component 'component2': right-to-left parts must start with right-to-left characters",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.err.Error(); got != tt.expected {
+				t.Errorf("BidiGuidelineError.Error() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+// TestNewParseError validates the wrapped and simple parse error constructors.
 func TestNewParseError(t *testing.T) {
 	t.Run("Nil Error", func(t *testing.T) {
 		if err := newParseError(nil); err != nil {
@@ -96,6 +137,7 @@ func TestNewParseError(t *testing.T) {
 	})
 }
 
+// TestGlobalErrors validates unexported and static syntax error constants.
 func TestGlobalErrors(t *testing.T) {
 	t.Run("errNoScheme", func(t *testing.T) {
 		expected := "No scheme found in an absolute IRI"

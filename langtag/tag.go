@@ -21,37 +21,82 @@ import (
 	"strings"
 )
 
-// tagElementsPositions stores the calculated end positions of each major
-// component within the final language tag string.
+// tagElementsPositions represents the subtag boundary indices as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.1)
+//
+// Representation:
+// An internal structural tracking object holding integer index offsets that define the boundaries of each parsed
+// component within the consolidated language tag string.
 type tagElementsPositions struct {
 	languageEnd, extlangEnd, scriptEnd, regionEnd, variantEnd, extensionEnd int
 	isGrandfathered                                                         bool
 }
 
-// Extension represents a single extension in a language tag, e.g., `-u-co-phonebk`.
+// Extension represents the single extension component as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.6)
+//
+// Representation:
+// A structure pairing a single-character extension singleton identifier (excluding 'x') with its associated value
+// subtags.
 type Extension struct {
 	Singleton rune
 	Value     string
 }
 
-// LanguageTag represents a well-formed RFC 5646 language tag.
+// LanguageTag represents the parsed and validated language tag as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.1)
+//
+// Representation:
+// A logical abstraction of a well-formed language tag, encapsulating the underlying canonicalized string, structural
+// boundaries of components, and parsed extension subtags.
 type LanguageTag struct {
 	tag        string
 	positions  tagElementsPositions
 	extensions []Extension
 }
 
-// String returns the underlying language tag string. It implements the fmt.Stringer interface.
+// String returns the underlying language tag string.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.1)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The fully serialized and normalized language tag string.
 func (lt *LanguageTag) String() string {
 	return lt.tag
 }
 
-// PrimaryLanguage returns the primary language subtag.
+// PrimaryLanguage extracts the primary language subtag.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.1)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The primary language subtag, representing the first element of the language tag.
 func (lt *LanguageTag) PrimaryLanguage() string {
 	return lt.tag[:lt.positions.languageEnd]
 }
 
-// ExtendedLanguage returns the extended language subtags as a single string.
+// ExtendedLanguage extracts the extended language subtags as a single string.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.2)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The extended language subtags joined by hyphens, or an empty string if not present.
+//   - bool: True if extended language subtags exist, false otherwise.
 func (lt *LanguageTag) ExtendedLanguage() (string, bool) {
 	if lt.positions.languageEnd == lt.positions.extlangEnd {
 		return "", false
@@ -59,7 +104,15 @@ func (lt *LanguageTag) ExtendedLanguage() (string, bool) {
 	return lt.tag[lt.positions.languageEnd+1 : lt.positions.extlangEnd], true
 }
 
-// ExtendedLanguageSubtags returns a slice of extended language subtags.
+// ExtendedLanguageSubtags extracts the individual extended language subtags.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.2)
+//
+// Parameters:
+//
+// Returns:
+//   - []string: A slice containing each parsed extended language subtag, or nil if none exist.
 func (lt *LanguageTag) ExtendedLanguageSubtags() []string {
 	ext, ok := lt.ExtendedLanguage()
 	if !ok {
@@ -68,12 +121,29 @@ func (lt *LanguageTag) ExtendedLanguageSubtags() []string {
 	return strings.Split(ext, "-")
 }
 
-// FullLanguage returns the primary language subtag and its extended language subtags.
+// FullLanguage extracts the full language portion, combining primary and extended language subtags.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.1) and RFC 5646 (Section 2.2.2)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The combined primary and extended language subtags.
 func (lt *LanguageTag) FullLanguage() string {
 	return lt.tag[:lt.positions.extlangEnd]
 }
 
-// Script returns the script subtag.
+// Script extracts the script subtag.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.3)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The script subtag if present, or an empty string.
+//   - bool: True if a script subtag exists, false otherwise.
 func (lt *LanguageTag) Script() (string, bool) {
 	if lt.positions.extlangEnd == lt.positions.scriptEnd {
 		return "", false
@@ -81,7 +151,16 @@ func (lt *LanguageTag) Script() (string, bool) {
 	return lt.tag[lt.positions.extlangEnd+1 : lt.positions.scriptEnd], true
 }
 
-// Region returns the region subtag.
+// Region extracts the region subtag.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.4)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The region subtag if present, or an empty string.
+//   - bool: True if a region subtag exists, false otherwise.
 func (lt *LanguageTag) Region() (string, bool) {
 	if lt.positions.scriptEnd == lt.positions.regionEnd {
 		return "", false
@@ -89,7 +168,16 @@ func (lt *LanguageTag) Region() (string, bool) {
 	return lt.tag[lt.positions.scriptEnd+1 : lt.positions.regionEnd], true
 }
 
-// Variant returns the variant subtags as a single string.
+// Variant extracts the variant subtags as a single string.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.5)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The variant subtags joined by hyphens, or an empty string.
+//   - bool: True if variant subtags exist, false otherwise.
 func (lt *LanguageTag) Variant() (string, bool) {
 	if lt.positions.regionEnd == lt.positions.variantEnd {
 		return "", false
@@ -97,7 +185,15 @@ func (lt *LanguageTag) Variant() (string, bool) {
 	return lt.tag[lt.positions.regionEnd+1 : lt.positions.variantEnd], true
 }
 
-// VariantSubtags returns a slice of variant subtags.
+// VariantSubtags extracts the individual variant subtags.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.5)
+//
+// Parameters:
+//
+// Returns:
+//   - []string: A slice containing each parsed variant subtag, or nil if none exist.
 func (lt *LanguageTag) VariantSubtags() []string {
 	v, ok := lt.Variant()
 	if !ok {
@@ -106,7 +202,15 @@ func (lt *LanguageTag) VariantSubtags() []string {
 	return strings.Split(v, "-")
 }
 
-// ExtensionSubtags returns a slice of parsed extensions.
+// ExtensionSubtags extracts the parsed extension subtags.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.6)
+//
+// Parameters:
+//
+// Returns:
+//   - []Extension: A copy of the parsed extension subtags, or nil if none exist.
 func (lt *LanguageTag) ExtensionSubtags() []Extension {
 	if len(lt.extensions) == 0 {
 		return nil
@@ -116,23 +220,43 @@ func (lt *LanguageTag) ExtensionSubtags() []Extension {
 	return exts
 }
 
-// PrivateUse returns the private use subtags as a single string (e.g., `phonebk-sort`).
+// PrivateUse extracts the private use subtags as a single string.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.7)
+//
+// Parameters:
+//
+// Returns:
+//   - string: The private use subtags joined by hyphens, or an empty string.
+//   - bool: True if private use subtags exist, false otherwise.
 func (lt *LanguageTag) PrivateUse() (string, bool) {
+	// Spec Rule: RFC 5646 (Section 2.2.7)
+	// Private use subtags are separated from other subtags by the reserved single-character subtag 'x' and can occupy
+	// the primary position.
 	if strings.HasPrefix(lt.tag, "x-") || strings.HasPrefix(lt.tag, "X-") {
 		return lt.tag[2:], true
 	}
 	privateUseStart := lt.positions.extensionEnd
 	if privateUseStart < len(lt.tag) &&
 		(lt.tag[privateUseStart] == '-' && (lt.tag[privateUseStart+1] == 'x' || lt.tag[privateUseStart+1] == 'X')) {
-		// The private use value starts after the "-x-" part.
-		// privateUseStart points to the first '-', so we need to slice from +3
-		// to skip over '-x-'. The parser ensures a subtag follows.
+		// Implementation Note: Skip the singleton prefix "x"
+		// The private use value starts after the "-x-" part. The variable privateUseStart points to the first '-', so
+		// we slice from +3 to skip over '-x-'.
 		return lt.tag[privateUseStart+3:], true
 	}
 	return "", false
 }
 
-// PrivateUseSubtags returns a slice of private use subtags.
+// PrivateUseSubtags extracts the individual private use subtags.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.7)
+//
+// Parameters:
+//
+// Returns:
+//   - []string: A slice containing each parsed private use subtag, or nil if none exist.
 func (lt *LanguageTag) PrivateUseSubtags() []string {
 	part, ok := lt.PrivateUse()
 	if !ok {
@@ -141,24 +265,43 @@ func (lt *LanguageTag) PrivateUseSubtags() []string {
 	return strings.Split(part, "-")
 }
 
-// IsGrandfathered returns true if the tag is a grandfathered tag.
+// IsGrandfathered checks if the language tag is classified as grandfathered.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.2.8)
+//
+// Parameters:
+//
+// Returns:
+//   - bool: True if the tag is a registered grandfathered tag, false otherwise.
 func (lt *LanguageTag) IsGrandfathered() bool {
 	return lt.positions.isGrandfathered
 }
 
-// MarshalJSON implements the json.Marshaler interface. It marshals the language
-// tag as a JSON string.
+// MarshalJSON serializes the language tag into its JSON string representation.
+//
+// Specification Reference:
+// RFC 5646 (Section 2.1)
+//
+// Parameters:
+//
+// Returns:
+//   - []byte: The JSON-encoded string representation of the language tag.
+//   - error: An error if JSON marshaling fails.
 func (lt *LanguageTag) MarshalJSON() ([]byte, error) {
 	return json.Marshal(lt.tag)
 }
 
-// UnmarshalJSON implements the json.Unmarshaler interface. It performs a full
-// validity check on the tag from the JSON string.
+// UnmarshalJSON deserializes and validates a language tag from a JSON string.
 //
-// Performance Warning: This method creates a new parser by calling NewParser()
-// on every invocation, which is an expensive operation. For performance-critical
-// applications, it is highly recommended to unmarshal into a string and then use a
-// pre-initialized, long-lived parser instance to parse the tag.
+// Specification Reference:
+// RFC 5646 (Section 2.1)
+//
+// Parameters:
+//   - data: A JSON-encoded byte slice representing the language tag.
+//
+// Returns:
+//   - error: An error if JSON unmarshaling or syntax validation fails, otherwise nil.
 func (lt *LanguageTag) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -170,12 +313,19 @@ func (lt *LanguageTag) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	p, err := NewParser()
-	if err != nil {
-		return err
+	// Implementation Note: Lightweight Syntax-Only Validation
+	// To avoid parsing the 1MB embedded registry file on every JSON unmarshal call, and in strict
+	// adherence to the codebase constraint forbidding global variables, syntax-only well-formedness
+	// validation is executed using an empty local registry map. This validates characters, subtag
+	// lengths, and structural properties without high loading overheads. Full semantic validation
+	// and normalization can be manually applied post-unmarshaling using a persistent Parser instance.
+	p := &Parser{
+		registry: &Registry{
+			Records: make(map[string]Record),
+		},
 	}
 
-	parsed, err := p.ParseAndNormalize(s)
+	parsed, err := p.Parse(s)
 	if err != nil {
 		return err
 	}

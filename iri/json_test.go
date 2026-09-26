@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -23,8 +23,8 @@ import (
 	"testing"
 )
 
-// TestRef_MarshalJSON tests the JSON marshaling of a Ref.
-func TestRef_MarshalJSON(t *testing.T) {
+// TestRefMarshalJSON tests the JSON marshaling of a Ref.
+func TestRefMarshalJSON(t *testing.T) {
 	ref := mustParseRef(t, "http://example.com/a?b#c")
 	jsonData, err := json.Marshal(ref)
 	if err != nil {
@@ -36,8 +36,8 @@ func TestRef_MarshalJSON(t *testing.T) {
 	}
 }
 
-// TestRef_UnmarshalJSON tests the JSON unmarshaling of a Ref.
-func TestRef_UnmarshalJSON(t *testing.T) {
+// TestRefUnmarshalJSON tests the JSON unmarshaling of a Ref.
+func TestRefUnmarshalJSON(t *testing.T) {
 	t.Run("Valid IRI", func(t *testing.T) {
 		var ref Ref
 		jsonData := []byte(`"http://example.com/a?b#c"`)
@@ -59,7 +59,10 @@ func TestRef_UnmarshalJSON(t *testing.T) {
 			t.Fatal("Expected an error for invalid IRI, but got none")
 		}
 		if !strings.Contains(err.Error(), "Invalid IRI character") {
-			t.Errorf("Expected error message to contain 'Invalid IRI character', got '%s'", err.Error())
+			t.Errorf(
+				"Expected error message to contain 'Invalid IRI character', got '%s'",
+				err.Error(),
+			)
 		}
 	})
 
@@ -73,8 +76,8 @@ func TestRef_UnmarshalJSON(t *testing.T) {
 	})
 }
 
-// TestIri_MarshalJSON tests the JSON marshaling of an Iri.
-func TestIri_MarshalJSON(t *testing.T) {
+// TestIriMarshalJSON tests the JSON marshaling of an Iri.
+func TestIriMarshalJSON(t *testing.T) {
 	iri := mustParseIri(t, "http://example.com/a")
 	jsonData, err := json.Marshal(iri)
 	if err != nil {
@@ -86,8 +89,8 @@ func TestIri_MarshalJSON(t *testing.T) {
 	}
 }
 
-// TestIri_UnmarshalJSON tests the JSON unmarshaling of an Iri, including validation.
-func TestIri_UnmarshalJSON(t *testing.T) {
+// TestIriUnmarshalJSON tests the JSON unmarshaling of an Iri, including validation.
+func TestIriUnmarshalJSON(t *testing.T) {
 	t.Run("Valid Absolute IRI", func(t *testing.T) {
 		var iri Iri
 		jsonData := []byte(`"http://example.com"`)
