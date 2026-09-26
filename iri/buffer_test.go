@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import (
@@ -22,7 +22,8 @@ import (
 	"testing"
 )
 
-func TestVoidOutputBuffer_WriteOperations(t *testing.T) {
+// TestVoidOutputBufferWriteOperations tests write operations on voidOutputBuffer.
+func TestVoidOutputBufferWriteOperations(t *testing.T) {
 	b := &voidOutputBuffer{}
 	if b.len() != 0 {
 		t.Errorf("Initial length should be 0, got %d", b.len())
@@ -49,7 +50,8 @@ func TestVoidOutputBuffer_WriteOperations(t *testing.T) {
 	}
 }
 
-func TestVoidOutputBuffer_Truncate(t *testing.T) {
+// TestVoidOutputBufferTruncate tests the truncate operation on voidOutputBuffer.
+func TestVoidOutputBufferTruncate(t *testing.T) {
 	b := &voidOutputBuffer{}
 	b.writeString("http://example.com/path")
 	b.truncate(15)
@@ -71,7 +73,8 @@ func TestVoidOutputBuffer_Truncate(t *testing.T) {
 	}
 }
 
-func TestVoidOutputBuffer_Reset(t *testing.T) {
+// TestVoidOutputBufferReset tests the reset operation on voidOutputBuffer.
+func TestVoidOutputBufferReset(t *testing.T) {
 	b := &voidOutputBuffer{}
 	b.writeString("some-initial-data")
 	if b.len() == 0 {
@@ -86,7 +89,8 @@ func TestVoidOutputBuffer_Reset(t *testing.T) {
 	}
 }
 
-func TestStringOutputBuffer_WriteOperations(t *testing.T) {
+// TestStringOutputBufferWriteOperations tests write operations on stringOutputBuffer.
+func TestStringOutputBufferWriteOperations(t *testing.T) {
 	b := &stringOutputBuffer{builder: &strings.Builder{}}
 	if b.len() != 0 {
 		t.Errorf("Initial length should be 0, got %d", b.len())
@@ -121,7 +125,8 @@ func TestStringOutputBuffer_WriteOperations(t *testing.T) {
 	}
 }
 
-func TestStringOutputBuffer_Truncate(t *testing.T) {
+// TestStringOutputBufferTruncate tests the truncate operation on stringOutputBuffer.
+func TestStringOutputBufferTruncate(t *testing.T) {
 	b := &stringOutputBuffer{builder: &strings.Builder{}}
 	b.writeString("scheme://user@host:123/path?query#fragment")
 	b.truncate(14)
@@ -141,19 +146,32 @@ func TestStringOutputBuffer_Truncate(t *testing.T) {
 	b.writeString("test")
 	b.truncate(-1)
 	if b.len() != 4 || b.string() != "test" {
-		t.Errorf("Truncating to negative value should be a no-op, got len %d, str '%s'", b.len(), b.string())
+		t.Errorf(
+			"Truncating to negative value should be a no-op, got len %d, str '%s'",
+			b.len(),
+			b.string(),
+		)
 	}
 	b.truncate(5)
 	if b.len() != 4 || b.string() != "test" {
-		t.Errorf("Truncating to a larger value should be a no-op, got len %d, str '%s'", b.len(), b.string())
+		t.Errorf(
+			"Truncating to a larger value should be a no-op, got len %d, str '%s'",
+			b.len(),
+			b.string(),
+		)
 	}
 	b.truncate(4)
 	if b.len() != 4 || b.string() != "test" {
-		t.Errorf("Truncating to the same length should be a no-op, got len %d, str '%s'", b.len(), b.string())
+		t.Errorf(
+			"Truncating to the same length should be a no-op, got len %d, str '%s'",
+			b.len(),
+			b.string(),
+		)
 	}
 }
 
-func TestStringOutputBuffer_Reset(t *testing.T) {
+// TestStringOutputBufferReset tests the reset operation on stringOutputBuffer.
+func TestStringOutputBufferReset(t *testing.T) {
 	b := &stringOutputBuffer{builder: &strings.Builder{}}
 	b.writeString("some-initial-data")
 	if b.len() == 0 {

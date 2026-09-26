@@ -14,12 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package iri
 
 import "testing"
 
-// TestIsASCIILetter tests the isASCIILetter function for compliance with RFC 3986, Appendix A (ALPHA).
+// TestIsASCIILetter tests the isASCIILetter function.
 func TestIsASCIILetter(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -47,7 +47,7 @@ func TestIsASCIILetter(t *testing.T) {
 	}
 }
 
-// TestIsASCIIDigit tests the isASCIIDigit function for compliance with RFC 3986, Appendix A (DIGIT).
+// TestIsASCIIDigit tests the isASCIIDigit function.
 func TestIsASCIIDigit(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -71,7 +71,7 @@ func TestIsASCIIDigit(t *testing.T) {
 	}
 }
 
-// TestIsASCIIHexDigit tests the isASCIIHexDigit function for compliance with RFC 3986, Appendix A (HEXDIG).
+// TestIsASCIIHexDigit tests the isASCIIHexDigit function.
 func TestIsASCIIHexDigit(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -98,7 +98,7 @@ func TestIsASCIIHexDigit(t *testing.T) {
 	}
 }
 
-// TestIsLaxASCII tests the isLaxASCII function based on RFC 3987, Section 3.1.
+// TestIsLaxASCII tests the isLaxASCII function.
 func TestIsLaxASCII(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -132,7 +132,7 @@ func TestIsLaxASCII(t *testing.T) {
 	}
 }
 
-// TestIsForbiddenBidiFormatting tests isForbiddenBidiFormatting against RFC 3987, Section 4.1.
+// TestIsForbiddenBidiFormatting tests the isForbiddenBidiFormatting function.
 func TestIsForbiddenBidiFormatting(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -161,7 +161,7 @@ func TestIsForbiddenBidiFormatting(t *testing.T) {
 	}
 }
 
-// TestIsUnreservedOrSubDelims tests isUnreservedOrSubDelims against RFC 3986, Appendix A.
+// TestIsUnreservedOrSubDelims tests the isUnreservedOrSubDelims function.
 func TestIsUnreservedOrSubDelims(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -204,7 +204,7 @@ func TestIsUnreservedOrSubDelims(t *testing.T) {
 	}
 }
 
-// TestIsIUnreservedOrSubDelims tests isIUnreservedOrSubDelims against RFC 3987, Section 2.2.
+// TestIsIUnreservedOrSubDelims tests the isIUnreservedOrSubDelims function.
 func TestIsIUnreservedOrSubDelims(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -270,7 +270,7 @@ func TestIsIUnreservedOrSubDelims(t *testing.T) {
 	}
 }
 
-// TestIsUnreserved tests the isUnreserved function against RFC 3986, Appendix A.
+// TestIsUnreserved tests the isUnreserved function.
 func TestIsUnreserved(t *testing.T) {
 	tests := []struct {
 		name  string

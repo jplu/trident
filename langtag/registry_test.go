@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package langtag
 
 import (
@@ -25,17 +25,29 @@ import (
 	"testing"
 )
 
-// errorReader is a helper type that implements io.Reader and always returns an error.
+// errorReader is a helper type for testing read errors.
 type errorReader struct{}
 
+// Read is a helper method that returns an error.
 func (r errorReader) Read(_ []byte) (int, error) {
 	return 0, errors.New("mock reader error")
 }
 
-// TestRecord_IsGrandfathered tests the IsGrandfathered method of the Record struct.
-//
-// RFC 5646 Section 2.2.8 defines grandfathered and redundant registrations.
-func TestRecord_IsGrandfathered(t *testing.T) {
+// newTestRegistry is a helper function that creates a new registry for testing.
+func newTestRegistry() *Registry {
+	return &Registry{Records: make(map[string]Record)}
+}
+
+// newTestRegistryParser is a helper function that creates a new registry parser for testing.
+func newTestRegistryParser() *registryParser {
+	return &registryParser{
+		registry:      &Registry{Records: make(map[string]Record)},
+		currentFields: make(map[string][]string),
+	}
+}
+
+// TestRecordIsGrandfathered tests IsGrandfathered.
+func TestRecordIsGrandfathered(t *testing.T) {
 	testCases := []struct {
 		name     string
 		record   Record
@@ -56,16 +68,19 @@ func TestRecord_IsGrandfathered(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := tc.record.IsGrandfathered()
 			if result != tc.expected {
-				t.Errorf("IsGrandfathered() for type '%s' = %v; want %v", tc.record.Type, result, tc.expected)
+				t.Errorf(
+					"IsGrandfathered() for type '%s' = %v; want %v",
+					tc.record.Type,
+					result,
+					tc.expected,
+				)
 			}
 		})
 	}
 }
 
-// Test_buildRecord tests the buildRecord function, which converts a map of fields
-// into a Record struct.
-// Based on RFC 5646 Section 3.1.2, which defines the fields within a record.
-func Test_buildRecord(t *testing.T) {
+// TestBuildRecord tests buildRecord.
+func TestBuildRecord(t *testing.T) {
 	tests := []struct {
 		name   string
 		fields map[string][]string
@@ -146,9 +161,8 @@ func Test_buildRecord(t *testing.T) {
 	}
 }
 
-// Test_expandNumericRange tests the expansion of numeric ranges.
-// RFC 5646 Section 3.1.1: "'11..13' denotes the values '11', '12', and '13'".
-func Test_expandNumericRange(t *testing.T) {
+// TestExpandNumericRange tests expandNumericRange.
+func TestExpandNumericRange(t *testing.T) {
 	tests := []struct {
 		name    string
 		start   string
@@ -157,7 +171,12 @@ func Test_expandNumericRange(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "rfc example 11..13", start: "11", end: "13", want: []string{"11", "12", "13"}},
-		{name: "padded range 001..003", start: "001", end: "003", want: []string{"001", "002", "003"}},
+		{
+			name:  "padded range 001..003",
+			start: "001",
+			end:   "003",
+			want:  []string{"001", "002", "003"},
+		},
 		{name: "single element range", start: "42", end: "42", want: []string{"42"}},
 		{name: "invalid start > end", start: "13", end: "11", wantErr: true},
 		{name: "invalid start is not numeric", start: "a1", end: "13", wantErr: true},
@@ -178,9 +197,8 @@ func Test_expandNumericRange(t *testing.T) {
 	}
 }
 
-// Test_expandAlphabeticRange tests the expansion of alphabetic ranges.
-// RFC 5646 Section 3.1.1: "'a..c' denotes the values 'a', 'b', and 'c'".
-func Test_expandAlphabeticRange(t *testing.T) {
+// TestExpandAlphabeticRange tests expandAlphabeticRange.
+func TestExpandAlphabeticRange(t *testing.T) {
 	tests := []struct {
 		name    string
 		start   string
@@ -189,7 +207,12 @@ func Test_expandAlphabeticRange(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "rfc example a..c", start: "a", end: "c", want: []string{"a", "b", "c"}},
-		{name: "rfc example qaa..qac (partial)", start: "qaa", end: "qac", want: []string{"qaa", "qab", "qac"}},
+		{
+			name:  "rfc example qaa..qac (partial)",
+			start: "qaa",
+			end:   "qac",
+			want:  []string{"qaa", "qab", "qac"},
+		},
 		{name: "rollover behavior", start: "az", end: "bc", want: []string{"az", "ba", "bb", "bc"}},
 		{name: "single element range", start: "b", end: "b", want: []string{"b"}},
 		{name: "case is normalized to lower", start: "A", end: "C", want: []string{"a", "b", "c"}},
@@ -216,9 +239,8 @@ func Test_expandAlphabeticRange(t *testing.T) {
 	}
 }
 
-// Test_expandRange tests the main range dispatcher.
-// RFC 5646 Section 3.1.1 defines range notation and this function validates the format.
-func Test_expandRange(t *testing.T) {
+// TestExpandRange tests expandRange.
+func TestExpandRange(t *testing.T) {
 	tests := []struct {
 		name     string
 		rangeStr string
@@ -226,7 +248,11 @@ func Test_expandRange(t *testing.T) {
 		wantErr  bool
 	}{
 		{name: "valid numeric range", rangeStr: "005..007", want: []string{"005", "006", "007"}},
-		{name: "valid alphabetic range", rangeStr: "ca..ce", want: []string{"ca", "cb", "cc", "cd", "ce"}},
+		{
+			name:     "valid alphabetic range",
+			rangeStr: "ca..ce",
+			want:     []string{"ca", "cb", "cc", "cd", "ce"},
+		},
 		{name: "invalid format - too many parts", rangeStr: "a..b..c", wantErr: true},
 		{name: "invalid format - missing end", rangeStr: "a..", wantErr: true},
 		{name: "invalid format - missing start", rangeStr: "..b", wantErr: true},
@@ -251,12 +277,8 @@ func Test_expandRange(t *testing.T) {
 	}
 }
 
-// Test_processAndAddRecord tests the processing of a single parsed Record.
-func Test_processAndAddRecord(t *testing.T) {
-	newTestRegistry := func() *Registry {
-		return &Registry{Records: make(map[string]Record)}
-	}
-
+// TestProcessAndAddRecord tests processAndAddRecord.
+func TestProcessAndAddRecord(t *testing.T) {
 	tests := []struct {
 		name         string
 		record       Record
@@ -329,18 +351,18 @@ func Test_processAndAddRecord(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(registry, tt.wantRegistry) {
-				t.Errorf("processAndAddRecord() registry = %+v, want %+v", registry, tt.wantRegistry)
+				t.Errorf(
+					"processAndAddRecord() registry = %+v, want %+v",
+					registry,
+					tt.wantRegistry,
+				)
 			}
 		})
 	}
 }
 
-// Test_addRecordFromFields tests the wrapper that combines buildRecord and processAndAddRecord.
-func Test_addRecordFromFields(t *testing.T) {
-	newTestRegistry := func() *Registry {
-		return &Registry{Records: make(map[string]Record)}
-	}
-
+// TestAddRecordFromFields tests addRecordFromFields.
+func TestAddRecordFromFields(t *testing.T) {
 	tests := []struct {
 		name         string
 		fields       map[string][]string
@@ -380,12 +402,17 @@ func Test_addRecordFromFields(t *testing.T) {
 				t.Errorf("addRecordFromFields() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if !reflect.DeepEqual(registry, tt.wantRegistry) {
-				t.Errorf("addRecordFromFields() registry = %+v, want %+v", registry, tt.wantRegistry)
+				t.Errorf(
+					"addRecordFromFields() registry = %+v, want %+v",
+					registry,
+					tt.wantRegistry,
+				)
 			}
 		})
 	}
 }
 
+// processLineTestCase is a helper struct for line processing test cases.
 type processLineTestCase struct {
 	name             string
 	lines            []string
@@ -396,13 +423,18 @@ type processLineTestCase struct {
 	wantLastField    string
 }
 
+// assertParserState is a test helper for parser state.
 func assertParserState(t *testing.T, p *registryParser, tt processLineTestCase) {
 	t.Helper()
 	if tt.wantFileDate != "" && p.registry.FileDate != tt.wantFileDate {
 		t.Errorf("parser.registry.FileDate = %q, want %q", p.registry.FileDate, tt.wantFileDate)
 	}
 	if tt.wantRecordsCount != len(p.registry.Records) {
-		t.Errorf("len(parser.registry.Records) = %d, want %d", len(p.registry.Records), tt.wantRecordsCount)
+		t.Errorf(
+			"len(parser.registry.Records) = %d, want %d",
+			len(p.registry.Records),
+			tt.wantRecordsCount,
+		)
 	}
 	if !reflect.DeepEqual(p.currentFields, tt.wantFinalFields) {
 		t.Errorf("parser.currentFields = %v, want %v", p.currentFields, tt.wantFinalFields)
@@ -412,16 +444,8 @@ func assertParserState(t *testing.T, p *registryParser, tt processLineTestCase) 
 	}
 }
 
-// Test_registryParser_processLine tests the line-by-line state machine of the parser.
-// Based on RFC 5646 Section 3.1.1 which describes the record-jar format.
-func Test_registryParser_processLine(t *testing.T) {
-	newTestRegistryParser := func() *registryParser {
-		return &registryParser{
-			registry:      &Registry{Records: make(map[string]Record)},
-			currentFields: make(map[string][]string),
-		}
-	}
-
+// TestRegistryParserProcessLine tests processLine.
+func TestRegistryParserProcessLine(t *testing.T) {
 	tests := []processLineTestCase{
 		{
 			name:            "file date sets registry field",
@@ -430,8 +454,13 @@ func Test_registryParser_processLine(t *testing.T) {
 			wantFinalFields: map[string][]string{},
 		},
 		{
-			name:             "file date ignored after first record",
-			lines:            []string{"Type: language", "Subtag: en", "%%", "File-Date: 2024-07-29"},
+			name: "file date ignored after first record",
+			lines: []string{
+				"Type: language",
+				"Subtag: en",
+				"%%",
+				"File-Date: 2024-07-29",
+			},
 			wantRecordsCount: 1,
 			wantFileDate:     "",
 			wantFinalFields:  map[string][]string{"file-date": {"2024-07-29"}},
@@ -444,10 +473,12 @@ func Test_registryParser_processLine(t *testing.T) {
 			wantLastField:   "type",
 		},
 		{
-			name:            "folded line appends to last field",
-			lines:           []string{"Description: A long description", "  that continues."},
-			wantFinalFields: map[string][]string{"description": {"A long description that continues."}},
-			wantLastField:   "description",
+			name:  "folded line appends to last field",
+			lines: []string{"Description: A long description", "  that continues."},
+			wantFinalFields: map[string][]string{
+				"description": {"A long description that continues."},
+			},
+			wantLastField: "description",
 		},
 		{
 			name:            "folded line with no last field is ignored",
@@ -497,7 +528,7 @@ func Test_registryParser_processLine(t *testing.T) {
 	}
 }
 
-// parseRegistryTestCase holds the data for a single Test_ParseRegistry case.
+// parseRegistryTestCase is a helper struct for registry parsing test cases.
 type parseRegistryTestCase struct {
 	name              string
 	reader            io.Reader
@@ -507,14 +538,18 @@ type parseRegistryTestCase struct {
 	wantErr           bool
 }
 
-// checkParseRegistryResult contains the assertion logic for Test_ParseRegistry.
+// checkParseRegistryResult is a test helper for registry results.
 func checkParseRegistryResult(t *testing.T, got *Registry, want parseRegistryTestCase) {
 	t.Helper()
 	if got.FileDate != want.wantFileDate {
 		t.Errorf("ParseRegistry() FileDate = %q, want %q", got.FileDate, want.wantFileDate)
 	}
 	if len(got.Records) != want.wantRecordCount {
-		t.Errorf("ParseRegistry() record count = %d, want %d", len(got.Records), want.wantRecordCount)
+		t.Errorf(
+			"ParseRegistry() record count = %d, want %d",
+			len(got.Records),
+			want.wantRecordCount,
+		)
 	}
 
 	for key, wantRecord := range want.wantSpecificCheck {
@@ -529,9 +564,8 @@ func checkParseRegistryResult(t *testing.T, got *Registry, want parseRegistryTes
 	}
 }
 
-// Test_ParseRegistry tests the top-level registry parsing function.
-// Verifies parsing of a complete registry file as described in RFC 5646 Section 3.1.
-func Test_ParseRegistry(t *testing.T) {
+// TestParseRegistry tests ParseRegistry.
+func TestParseRegistry(t *testing.T) {
 	validRegistryContent := `File-Date: 2004-06-28
 %%
 Type: language
@@ -560,9 +594,8 @@ Preferred-Value: tlh
 
 	tests := []parseRegistryTestCase{
 		{
-			name:   "valid registry parsing with ranges and folding",
-			reader: strings.NewReader(validRegistryContent),
-			// qm..qz expands to 14 records + de + Latn + i-klingon = 17 records
+			name:            "valid registry parsing with ranges and folding",
+			reader:          strings.NewReader(validRegistryContent),
 			wantRecordCount: 17,
 			wantFileDate:    "2004-06-28",
 			wantSpecificCheck: map[string]Record{
@@ -585,6 +618,11 @@ Preferred-Value: tlh
 		{
 			name:    "malformed content (bad range)",
 			reader:  strings.NewReader("Type: region\nSubtag: 3..1\n%%"),
+			wantErr: true,
+		},
+		{
+			name:    "malformed content at EOF without trailing delimiter",
+			reader:  strings.NewReader("Type: region\nSubtag: 3..1"),
 			wantErr: true,
 		},
 	}

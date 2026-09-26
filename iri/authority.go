@@ -22,23 +22,28 @@ import (
 )
 
 const (
-	// ipvFutureParts is the number of parts expected in an IPvFuture literal
-	// (e.g., "v1.abc"), separated by a dot.
+	// ipvFutureParts defines the number of parts expected in an IPvFuture literal (e.g., "v1.abc"), separated by a dot.
 	ipvFutureParts = 2
 )
 
-// parseUserinfo handles the userinfo part of the authority.
+// parseUserinfo processes and validates the userinfo subcomponent of the authority component.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2), RFC 3986 (Section 3.2.1)
+//
+// Parameters:
+//   - userinfo: The raw userinfo string to parse and validate.
+//
+// Returns:
+//   - error: An error if validation or parsing fails, nil otherwise.
 func (p *iriParser) parseUserinfo(userinfo string) error {
 	if userinfo == "" {
 		return nil
 	}
-	if !p.unchecked {
-		if err := validateBidiComponent(userinfo); err != nil {
-			return err
-		}
-	}
 
-	// Use a temporary buffer to ensure parsing is transactional.
+	// Implementation Note: Transactional state buffering.
+	// Uses a temporary buffer and secondary parser instance to ensure parsing of the userinfo string is transactional
+	// and rollback-capable upon failure.
 	var tempBuffer strings.Builder
 	tempParser := &iriParser{
 		input:     newParserInput(userinfo),
@@ -63,7 +68,16 @@ func (p *iriParser) parseUserinfo(userinfo string) error {
 	return nil
 }
 
-// validateHost checks the host component for structural validity (IP literal format, Bidi rules).
+// validateHost checks the structural validity of the host component against IP literal rules.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.2.2)
+//
+// Parameters:
+//   - host: The host string to be structurally checked.
+//
+// Returns:
+//   - error: An error if the host does not conform to the required syntax, nil otherwise.
 func (p *iriParser) validateHost(host string) error {
 	if strings.HasPrefix(host, "[") {
 		if !strings.HasSuffix(host, "]") {
@@ -73,13 +87,46 @@ func (p *iriParser) validateHost(host string) error {
 		if err := p.validateIPLiteral(ipLiteral); err != nil {
 			return err
 		}
-	} else if err := validateBidiHost(host); err != nil {
-		return err
 	}
 	return nil
 }
 
-// parseHost handles the host part of the authority.
+// validateHostChar checks if a single character is allowed in a host component.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2), RFC 3986 (Section 3.2.2)
+//
+// Parameters:
+//   - r: The rune to be validated.
+//   - isIPLiteral: A boolean indicating whether the host is an IP literal.
+//
+// Returns:
+//   - error: An error if the character is not allowed, nil otherwise.
+func (p *iriParser) validateHostChar(r rune, isIPLiteral bool) error {
+	if p.unchecked {
+		return nil
+	}
+	if isIPLiteral {
+		isIPLiteralChar := r == '[' || r == ']' || r == ':'
+		if !isIUnreservedOrSubDelims(r) && !isIPLiteralChar {
+			return &kindError{message: "Invalid character in host", char: r}
+		}
+	} else if !isIUnreservedOrSubDelims(r) {
+		return &kindError{message: "Invalid character in host", char: r}
+	}
+	return nil
+}
+
+// parseHost processes, validates, and writes the host component to the internal parser output buffer.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2), RFC 3986 (Section 3.2.2)
+//
+// Parameters:
+//   - host: The host string to parse.
+//
+// Returns:
+//   - error: An error if verification fails or an invalid character is encountered, nil otherwise.
 func (p *iriParser) parseHost(host string) error {
 	if host == "" {
 		return nil
@@ -89,6 +136,11 @@ func (p *iriParser) parseHost(host string) error {
 			return err
 		}
 	}
+
+	// Spec Rule: RFC 3986 (Section 3.2.2)
+	// Bracketed IP literals must be identified prior to the character loop to restrict colon and bracket characters
+	// strictly to IP formats.
+	isIPLiteral := strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]")
 
 	var tempBuffer strings.Builder
 	tempParser := &iriParser{
@@ -104,17 +156,17 @@ func (p *iriParser) parseHost(host string) error {
 		}
 
 		if r == '%' {
-			// The '%' is now consumed. readEchar can correctly read the next two digits.
-			if err := tempParser.readEchar(); err != nil {
-				return err
+			if !tempParser.input.hasHexDigits() {
+				return &kindError{message: "Invalid percent-encoding sequence", char: '%'}
 			}
+			// Implementation Note: Percent-encoding sequence validation.
+			// Since hasHexDigits() returned true, readEchar() is guaranteed to succeed.
+			_ = tempParser.readEchar()
 		} else {
-			// Check against the allowed character set for a host.
-			// The host component allows different characters depending on whether it's an
-			// IP literal or a registered name. We must check for all valid possibilities.
-			isIPLiteralChar := r == '[' || r == ']' || r == ':'
-			if !p.unchecked && !isIUnreservedOrSubDelims(r) && !isIPLiteralChar {
-				return &kindError{message: "Invalid character in host", char: r}
+			// Spec Rule: RFC 3987 (Section 2.2)
+			// Validates character legality against allowable iunreserved, sub-delims, or IP literal characters.
+			if err := tempParser.validateHostChar(r, isIPLiteral); err != nil {
+				return err
 			}
 			tempParser.output.writeRune(r)
 		}
@@ -124,9 +176,19 @@ func (p *iriParser) parseHost(host string) error {
 	return nil
 }
 
-// parsePort handles the port part of the authority.
-func (p *iriParser) parsePort(port string) error {
-	if port == "" {
+// parsePort processes, validates, and appends the port subcomponent to the internal parser output buffer.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.2.3)
+//
+// Parameters:
+//   - port: The port string containing only numeric ASCII characters.
+//   - hasPortDelimiter: A boolean indicating if the port delimiter (colon) was present.
+//
+// Returns:
+//   - error: An error if any character is non-numeric, nil otherwise.
+func (p *iriParser) parsePort(port string, hasPortDelimiter bool) error {
+	if !hasPortDelimiter {
 		return nil
 	}
 	if !p.unchecked {
@@ -136,13 +198,22 @@ func (p *iriParser) parsePort(port string) error {
 			}
 		}
 	}
+	// Spec Rule: RFC 3986 (Section 3.2.3)
+	// Write the colon delimiter unconditionally to the output buffer to preserve empty ports during initial parsing.
 	p.output.writeRune(':')
 	p.output.writeString(port)
 	return nil
 }
 
-// parseAuthority is a method on the iriParser that consumes and validates
-// the authority component from the input stream.
+// parseAuthority parses, validates, and splits the authority component into userinfo, host, and port.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2), RFC 3986 (Section 3.2)
+//
+// Parameters:
+//
+// Returns:
+//   - error: An error if any subcomponent validation fails, nil otherwise.
 func (p *iriParser) parseAuthority() error {
 	authorityStr := p.input.asStr()
 	end := len(authorityStr)
@@ -154,7 +225,7 @@ func (p *iriParser) parseAuthority() error {
 	}
 	authorityPart := authorityStr[:end]
 
-	userinfo, host, port := splitAuthority(authorityPart)
+	userinfo, host, port, hasPortDelimiter := splitAuthority(authorityPart)
 
 	if err := p.parseUserinfo(userinfo); err != nil {
 		return err
@@ -162,7 +233,7 @@ func (p *iriParser) parseAuthority() error {
 	if err := p.parseHost(host); err != nil {
 		return err
 	}
-	if err := p.parsePort(port); err != nil {
+	if err := p.parsePort(port, hasPortDelimiter); err != nil {
 		return err
 	}
 
@@ -172,18 +243,42 @@ func (p *iriParser) parseAuthority() error {
 	return nil
 }
 
-// validateIPLiteral checks if a string inside brackets is a valid IPv6 or IPvFuture address.
+// validateIPLiteral checks if the enclosed IP literal string is a valid IPv6 or IPvFuture format.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.2.2)
+//
+// Parameters:
+//   - ipLiteral: The string enclosed in square brackets.
+//
+// Returns:
+// - error: An error if parsing fails, if the literal is a bracketed IPv4 address, or formatting is invalid, nil
+// otherwise.
 func (p *iriParser) validateIPLiteral(ipLiteral string) error {
 	if strings.HasPrefix(ipLiteral, "v") || strings.HasPrefix(ipLiteral, "V") {
 		return p.validateIPVFuture(ipLiteral)
 	}
-	if net.ParseIP(ipLiteral) == nil {
+
+	ip := net.ParseIP(ipLiteral)
+	// Spec Rule: RFC 3986 (Section 3.2.2)
+	// IP-literal can only represent an IPv6 or IPvFuture address. Enclosing an IPv4 address
+	// in square brackets (e.g., [192.168.0.1]) is structurally invalid.
+	if ip == nil || ip.To4() != nil {
 		return &kindError{message: "Invalid host IP", details: ipLiteral}
 	}
 	return nil
 }
 
-// validateIPVFuture validates an IPvFuture literal (e.g., "v1.something").
+// validateIPVFuture validates the structural components of an IPvFuture literal identifier.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.2.2)
+//
+// Parameters:
+//   - ip: The IPvFuture address string containing version and sub-delims characters.
+//
+// Returns:
+//   - error: An error if format violations are encountered, nil otherwise.
 func (p *iriParser) validateIPVFuture(ip string) error {
 	parts := strings.SplitN(ip[1:], ".", ipvFutureParts)
 	if len(parts) != ipvFutureParts {
@@ -209,10 +304,22 @@ func (p *iriParser) validateIPVFuture(ip string) error {
 	return nil
 }
 
-// splitAuthority is the single, stateless utility function that parses an authority
-// string into its userinfo, host, and port components.
-func splitAuthority(authority string) (string, string, string) {
+// splitAuthority decomposes a raw authority string into its userinfo, host, and port components.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.2)
+//
+// Parameters:
+//   - authority: The raw authority string to segment.
+//
+// Returns:
+//   - string: The extracted userinfo subcomponent.
+//   - string: The extracted host subcomponent.
+//   - string: The extracted port subcomponent.
+//   - bool: True if the authority contains a trailing port colon delimiter, false otherwise.
+func splitAuthority(authority string) (string, string, string, bool) {
 	var userinfo, host, port string
+	var hasPortDelimiter bool
 
 	endUserinfo := strings.LastIndex(authority, "@")
 	hostport := authority
@@ -225,21 +332,23 @@ func splitAuthority(authority string) (string, string, string) {
 		endBracket := strings.LastIndex(hostport, "]")
 		if endBracket == -1 {
 			host = hostport
-			return userinfo, host, port
+			return userinfo, host, port, false
 		}
 		host = hostport[:endBracket+1]
 		if len(hostport) > endBracket+1 && hostport[endBracket+1] == ':' {
 			port = hostport[endBracket+2:]
+			hasPortDelimiter = true
 		}
-		return userinfo, host, port
+		return userinfo, host, port, hasPortDelimiter
 	}
 
 	endHost := strings.LastIndex(hostport, ":")
 	if endHost != -1 {
 		host = hostport[:endHost]
 		port = hostport[endHost+1:]
+		hasPortDelimiter = true
 	} else {
 		host = hostport
 	}
-	return userinfo, host, port
+	return userinfo, host, port, hasPortDelimiter
 }
