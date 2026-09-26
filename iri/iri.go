@@ -25,19 +25,36 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// ParseError is the error type returned by parsing functions in this package.
-// It contains a descriptive message and may wrap a more specific internal error.
+// ParseError represents the parsing failure details as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Representation:
+// An error wrapper holding the descriptive failure message and the wrapped internal error details.
 type ParseError struct {
 	Message string
 	Err     error
 }
 
 // Error returns the string representation of the parse error.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Returns:
+//   - string: The formatted error message string.
 func (e *ParseError) Error() string {
 	return fmt.Sprintf("IRI parse error: %s", e.Message)
 }
 
-// Unwrap provides compatibility with Go's standard errors package.
+// Unwrap provides compatibility with Go's standard errors package by returning the underlying error.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Returns:
+//   - error: The wrapped internal error, or nil if none.
 func (e *ParseError) Unwrap() error {
 	return e.Err
 }
@@ -45,43 +62,58 @@ func (e *ParseError) Unwrap() error {
 // ErrIriRelativize is returned by the Relativize method when it's not possible
 // to create a relative reference because the target IRI's path contains dot segments
 // ("." or ".."). Such paths must be normalized before relativization.
-var ErrIriRelativize = errors.New("it is not possible to make this IRI relative because it contains '/..' or '/.'")
+var ErrIriRelativize = errors.New(
+	"it is not possible to make this IRI relative because it contains '/..' or '/.'",
+)
 
-// Ref represents an IRI reference, which can be either absolute or relative.
-// It is an immutable type; methods that modify the IRI, like Resolve, return a new Ref.
-// The internal `iri` string is stored exactly as provided to the parsing function.
-// For comparison purposes where canonical equivalence is desired, use ParseNormalizedRef
-// or the Normalize() method.
+// Ref represents the IRI reference as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 1.3)
+//
+// Representation:
+// A Unicode-based string reference representing either an absolute IRI or a relative IRI reference.
+// It provides accessors for parsing and identifying individual IRI components.
 type Ref struct {
 	iri       string
 	positions Positions
 }
 
 // ParseRef parses and validates a string as an IRI reference.
-// This function is compliant with RFC 3987, Section 3.1, Step 1c.
-// It parses the string as-is, without applying any Unicode normalization.
-// This preserves the exact character sequence of the input, which is critical for
-// applications that use IRIs as unique, opaque identifiers.
 //
-// For applications that require canonical equivalence for comparison or storage,
-// use ParseNormalizedRef instead.
+// Specification Reference:
+// RFC 3987 (Section 3.1)
+//
+// Parameters:
+//   - s: The raw string representation of the IRI reference to be parsed and validated.
+//
+// Returns:
+//   - *Ref: A pointer to the parsed Ref struct.
+//   - error: A ParseError if the string violates syntactic rules.
 func ParseRef(s string) (*Ref, error) {
-	pos, err := run(s, nil, false, &voidOutputBuffer{})
+	var target strings.Builder
+	target.Grow(len(s))
+	output := &stringOutputBuffer{builder: &target}
+
+	pos, err := run(s, nil, false, output)
 	if err != nil {
 		return nil, newParseError(err)
 	}
-	return &Ref{iri: s, positions: pos}, nil
+
+	return &Ref{iri: target.String(), positions: pos}, nil
 }
 
-// ParseNormalizedRef provides the previous behavior of ParseRef for users
-// who need it. It first normalizes the input string to Unicode Normalization Form C (NFC)
-// and then parses it. This is useful for ensuring that canonically equivalent IRIs
-// are treated as identical, which is important for caching, history, and other
-// comparison-sensitive operations.
+// ParseNormalizedRef parses and validates a string as an IRI reference after applying NFC normalization.
 //
-// In accordance with RFC 3987 sections 3.1 and 5.3.2.2, this function should
-// be used when the source of the IRI string is not from a pre-normalized Unicode
-// source (e.g., read from paper or converted from a legacy encoding).
+// Specification Reference:
+// RFC 3987 (Section 3.1)
+//
+// Parameters:
+//   - s: The raw string representation to be normalized and parsed.
+//
+// Returns:
+//   - *Ref: A pointer to the normalized and parsed Ref struct.
+//   - error: A ParseError if the string violates syntactic rules.
 func ParseNormalizedRef(s string) (*Ref, error) {
 	normalizedIRI := norm.NFC.String(s)
 	pos, err := run(normalizedIRI, nil, false, &voidOutputBuffer{})
@@ -91,8 +123,17 @@ func ParseNormalizedRef(s string) (*Ref, error) {
 	return &Ref{iri: normalizedIRI, positions: pos}, nil
 }
 
-// Resolve resolves a relative IRI reference against the current Ref (which acts as the base IRI).
-// It returns a new, absolute Ref. This operation is equivalent to resolving a hyperlink.
+// Resolve resolves a relative IRI reference against the current Ref (acting as the base IRI).
+//
+// Specification Reference:
+// RFC 3987 (Section 6.5)
+//
+// Parameters:
+//   - relativeIRI: The relative IRI reference string to be resolved against the base.
+//
+// Returns:
+//   - *Ref: A pointer to the newly resolved absolute Ref struct.
+//   - error: An error if the resolution or validation fails.
 func (r *Ref) Resolve(relativeIRI string) (*Ref, error) {
 	builder := &strings.Builder{}
 	builder.Grow(len(r.iri) + len(relativeIRI))
@@ -103,34 +144,59 @@ func (r *Ref) Resolve(relativeIRI string) (*Ref, error) {
 	return &Ref{iri: builder.String(), positions: pos}, nil
 }
 
-// ResolveTo resolves a relative IRI reference and writes the result directly into
-// the provided strings.Builder, avoiding extra allocations. It returns the positions
-// of the components in the resulting IRI. This is useful for performance-critical code.
-// The relative IRI reference is normalized to NFC before resolution.
+// ResolveTo resolves a relative IRI reference and writes the result directly into the target strings.Builder.
+//
+// Specification Reference:
+// RFC 3987 (Section 6.5)
+//
+// Parameters:
+//   - relativeIRI: The relative IRI reference string to be resolved against the base.
+//   - target: The strings.Builder buffer where the resolved IRI is written.
+//
+// Returns:
+//   - Positions: The byte offsets of the resolved components in the target builder.
+//   - error: An error if the relative reference parsing fails.
 func (r *Ref) ResolveTo(relativeIRI string, target *strings.Builder) (Positions, error) {
-	// Note: Normalizing the relative part here is a good practice for consistency
-	// of the resolved output, even if the base might not be normalized.
+	// Implementation Note: Sanitization and validation of the relative reference before resolving.
+	// Converting the input to NFC and parsing it ensures that invalid characters are caught and
+	// lenient characters are properly handled prior to running the resolution process.
 	normalizedRelativeIRI := norm.NFC.String(relativeIRI)
+	parsedRef, err := ParseRef(normalizedRelativeIRI)
+	if err != nil {
+		return Positions{}, err
+	}
 
 	b := &base{IRI: r.iri, Pos: r.positions}
 	output := &stringOutputBuffer{builder: target}
 
-	pos, err := run(normalizedRelativeIRI, b, false, output)
-	if err != nil {
-		return Positions{}, newParseError(err)
-	}
+	// Implementation Note: Execute reference resolution
+	// Resolve the pre-parsed, sanitized, and percent-encoded reference against the base components.
+	pos, _ := run(parsedRef.iri, b, false, output)
 	return pos, nil
 }
 
-// Iri represents a guaranteed absolute IRI. It embeds a Ref and provides convenience
-// methods for working with IRIs that must be absolute.
+// Iri represents the absolute IRI as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 1.3)
+//
+// Representation:
+// A guaranteed absolute Internationalized Resource Identifier containing a scheme and embedding a Ref.
 type Iri struct {
 	Ref
 }
 
 // ParseIri parses and validates a string, ensuring it is an absolute IRI.
-// If the string is a relative reference, it returns an error. The string is not
-// NFC normalized; for that, use ParseNormalizedIri.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Parameters:
+//   - s: The raw string representation to be parsed as an absolute IRI.
+//
+// Returns:
+//   - *Iri: A pointer to the absolute Iri struct.
+//   - error: An error if the string is relative, or if it violates syntactic rules.
 func ParseIri(s string) (*Iri, error) {
 	ref, err := ParseRef(s)
 	if err != nil {
@@ -140,6 +206,16 @@ func ParseIri(s string) (*Iri, error) {
 }
 
 // ParseNormalizedIri parses a string as an absolute IRI, first applying NFC normalization.
+//
+// Specification Reference:
+// RFC 3987 (Section 3.1)
+//
+// Parameters:
+//   - s: The raw string representation to be normalized and parsed as an absolute IRI.
+//
+// Returns:
+//   - *Iri: A pointer to the normalized absolute Iri struct.
+//   - error: An error if the string is relative, or if it violates syntactic rules.
 func ParseNormalizedIri(s string) (*Iri, error) {
 	ref, err := ParseNormalizedRef(s)
 	if err != nil {
@@ -149,7 +225,16 @@ func ParseNormalizedIri(s string) (*Iri, error) {
 }
 
 // NewIriFromRef attempts to create an absolute Iri from an existing Ref.
-// It returns an error if the provided Ref is not absolute.
+//
+// Specification Reference:
+// RFC 3987 (Section 1.3)
+//
+// Parameters:
+//   - ref: A pointer to the Ref struct.
+//
+// Returns:
+//   - *Iri: A pointer to the absolute Iri struct.
+//   - error: An error if the provided Ref is not absolute.
 func NewIriFromRef(ref *Ref) (*Iri, error) {
 	if !ref.IsAbsolute() {
 		return nil, newParseError(errNoScheme)
@@ -157,19 +242,38 @@ func NewIriFromRef(ref *Ref) (*Iri, error) {
 	return &Iri{Ref: *ref}, nil
 }
 
-// Resolve resolves a relative IRI reference against the current Iri and returns
-// a new, absolute Iri.
+// Resolve resolves a relative IRI reference against the current Iri and returns a new absolute Iri.
+//
+// Specification Reference:
+// RFC 3987 (Section 6.5)
+//
+// Parameters:
+//   - relativeIRI: The relative IRI reference string to be resolved against the absolute base.
+//
+// Returns:
+//   - *Iri: A pointer to the resolved absolute Iri.
+//   - error: An error if the resolution or validation fails.
 func (i *Iri) Resolve(relativeIRI string) (*Iri, error) {
 	ref, err := i.Ref.Resolve(relativeIRI)
 	if err != nil {
 		return nil, err
 	}
-	// The result of a resolution is always absolute.
+	// Spec Rule: RFC 3987 (Section 6.5)
+	// The result of a reference resolution against an absolute base IRI is always absolute.
 	return &Iri{Ref: *ref}, nil
 }
 
-// ResolveTo resolves a relative IRI and writes the resulting absolute IRI
-// to the provided strings.Builder, avoiding allocations.
+// ResolveTo resolves a relative IRI and writes the resulting absolute IRI to the provided strings.Builder.
+//
+// Specification Reference:
+// RFC 3987 (Section 6.5)
+//
+// Parameters:
+//   - relativeIRI: The relative IRI reference string to be resolved.
+//   - target: The strings.Builder buffer where the resolved IRI is written.
+//
+// Returns:
+//   - error: An error if the resolution or validation fails.
 func (i *Iri) ResolveTo(relativeIRI string, target *strings.Builder) error {
 	_, err := i.Ref.ResolveTo(relativeIRI, target)
 	return err

@@ -1,0 +1,884 @@
+[
+  {
+    "id": "rfc3986-1",
+    "category": "RFC3986",
+    "uri_reference": "http://a/b/c/d;p?q",
+    "parsed_components": {
+      "scheme": "http",
+      "authority": "a",
+      "path": "/b/c/d;p",
+      "query": "q",
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/d;p?q"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "http://a/b/c/d;p?q"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-2",
+    "category": "RFC3986",
+    "uri_reference": "g:h",
+    "parsed_components": {
+      "scheme": "g",
+      "authority": null,
+      "path": "h",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "g:h"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "g:h"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-3",
+    "category": "RFC3986",
+    "uri_reference": "",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/d;p?q"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-4",
+    "category": "RFC3986",
+    "uri_reference": "g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-5",
+    "category": "RFC3986",
+    "uri_reference": "./g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "./g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-6",
+    "category": "RFC3986",
+    "uri_reference": "g/",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g/",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-7",
+    "category": "RFC3986",
+    "uri_reference": "/g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "/g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-8",
+    "category": "RFC3986",
+    "uri_reference": "//g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": "g",
+      "path": "",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data://g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-9",
+    "category": "RFC3986",
+    "uri_reference": "?y",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "",
+      "query": "y",
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/d;p?y"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be?y"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-10",
+    "category": "RFC3986",
+    "uri_reference": "g?y",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g",
+      "query": "y",
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g?y"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g?y"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-11",
+    "category": "RFC3986",
+    "uri_reference": "#s",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "",
+      "query": null,
+      "fragment": "s"
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/d;p?q#s"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be#s"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-12",
+    "category": "RFC3986",
+    "uri_reference": "g#s",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g",
+      "query": null,
+      "fragment": "s"
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g#s"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g#s"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-13",
+    "category": "RFC3986",
+    "uri_reference": "g?y#s",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g",
+      "query": "y",
+      "fragment": "s"
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g?y#s"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g?y#s"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-14",
+    "category": "RFC3986",
+    "uri_reference": ";x",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": ";x",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/;x"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/;x"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-15",
+    "category": "RFC3986",
+    "uri_reference": "g;x",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g;x",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g;x"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g;x"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-16",
+    "category": "RFC3986",
+    "uri_reference": "g;x?y#s",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g;x",
+      "query": "y",
+      "fragment": "s"
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g;x?y#s"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g;x?y#s"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-17",
+    "category": "RFC3986",
+    "uri_reference": "",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/d;p?q"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-18",
+    "category": "RFC3986",
+    "uri_reference": ".",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": ".",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-19",
+    "category": "RFC3986",
+    "uri_reference": "./",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "./",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-20",
+    "category": "RFC3986",
+    "uri_reference": "..",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "..",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-21",
+    "category": "RFC3986",
+    "uri_reference": "../",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-22",
+    "category": "RFC3986",
+    "uri_reference": "../g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-23",
+    "category": "RFC3986",
+    "uri_reference": "../..",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../..",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-24",
+    "category": "RFC3986",
+    "uri_reference": "../../",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../../",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-25",
+    "category": "RFC3986",
+    "uri_reference": "../../g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../../g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-26",
+    "category": "RFC3986",
+    "uri_reference": "../../../g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../../../g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-27",
+    "category": "RFC3986",
+    "uri_reference": "../../../../g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "../../../../g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-28",
+    "category": "RFC3986",
+    "uri_reference": "/./g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "/./g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-29",
+    "category": "RFC3986",
+    "uri_reference": "/../g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "/../g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:/g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-30",
+    "category": "RFC3986",
+    "uri_reference": "g.",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g.",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g."
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g."
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-31",
+    "category": "RFC3986",
+    "uri_reference": ".g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": ".g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/.g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/.g"
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-32",
+    "category": "RFC3986",
+    "uri_reference": "g..",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "g..",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/g.."
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/g.."
+      }
+    ]
+  },
+  {
+    "id": "rfc3986-33",
+    "category": "RFC3986",
+    "uri_reference": "..g",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "..g",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://a/b/c/..g"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/..g"
+      }
+    ]
+  },
+  {
+    "id": "rfc2397-1",
+    "category": "RFC2397",
+    "uri_reference": "data:image/gif;base64,R0lGODdhMAAwAPAAAAAAAP///ywAAAAAMAAwAAAC8IyPqcvt3wCcDkiLc7C0qwyGHhSWpjQu5yqmCYsapyuvUUlvONmOZtfzgFzByTB10QgxOR0TqBQejhRNzOfkVJ+5YiUqrXF5Y5lKh/DeuNcP5yLWGsEbtLiOSpa/TPg7JpJHxyendzWTBfX0cxOnKPjgBzi4diinWGdkF8kjdfnycQZXZeYGejmJlZeGl9i2icVqaNVailT6F5iJ90m6mvuTS4OK05M0vDk0Q4XUtwvKOzrcd3iq9uisF81M1OIcR7lEewwcLp7tuNNkM3uNna3F2JQFo97Vriy/Xl4/f1cf5VWzXyym7PHhhx4dbgYKAAA7",
+    "parsed_components": {
+      "scheme": "data",
+      "authority": null,
+      "path": "image/gif;base64,R0lGODdhMAAwAPAAAAAAAP///ywAAAAAMAAwAAAC8IyPqcvt3wCcDkiLc7C0qwyGHhSWpjQu5yqmCYsapyuvUUlvONmOZtfzgFzByTB10QgxOR0TqBQejhRNzOfkVJ+5YiUqrXF5Y5lKh/DeuNcP5yLWGsEbtLiOSpa/TPg7JpJHxyendzWTBfX0cxOnKPjgBzi4diinWGdkF8kjdfnycQZXZeYGejmJlZeGl9i2icVqaNVailT6F5iJ90m6mvuTS4OK05M0vDk0Q4XUtwvKOzrcd3iq9uisF81M1OIcR7lEewwcLp7tuNNkM3uNna3F2JQFo97Vriy/Xl4/f1cf5VWzXyym7PHhhx4dbgYKAAA7",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "data:image/gif;base64,R0lGODdhMAAwAPAAAAAAAP///ywAAAAAMAAwAAAC8IyPqcvt3wCcDkiLc7C0qwyGHhSWpjQu5yqmCYsapyuvUUlvONmOZtfzgFzByTB10QgxOR0TqBQejhRNzOfkVJ+5YiUqrXF5Y5lKh/DeuNcP5yLWGsEbtLiOSpa/TPg7JpJHxyendzWTBfX0cxOnKPjgBzi4diinWGdkF8kjdfnycQZXZeYGejmJlZeGl9i2icVqaNVailT6F5iJ90m6mvuTS4OK05M0vDk0Q4XUtwvKOzrcd3iq9uisF81M1OIcR7lEewwcLp7tuNNkM3uNna3F2JQFo97Vriy/Xl4/f1cf5VWzXyym7PHhhx4dbgYKAAA7"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:image/gif;base64,R0lGODdhMAAwAPAAAAAAAP///ywAAAAAMAAwAAAC8IyPqcvt3wCcDkiLc7C0qwyGHhSWpjQu5yqmCYsapyuvUUlvONmOZtfzgFzByTB10QgxOR0TqBQejhRNzOfkVJ+5YiUqrXF5Y5lKh/DeuNcP5yLWGsEbtLiOSpa/TPg7JpJHxyendzWTBfX0cxOnKPjgBzi4diinWGdkF8kjdfnycQZXZeYGejmJlZeGl9i2icVqaNVailT6F5iJ90m6mvuTS4OK05M0vDk0Q4XUtwvKOzrcd3iq9uisF81M1OIcR7lEewwcLp7tuNNkM3uNna3F2JQFo97Vriy/Xl4/f1cf5VWzXyym7PHhhx4dbgYKAAA7"
+      }
+    ]
+  },
+  {
+    "id": "rfc2397-2",
+    "category": "RFC2397",
+    "uri_reference": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+    "parsed_components": {
+      "scheme": "data",
+      "authority": null,
+      "path": "text/plain;charset=iso-8859-7,%be%25fg%be",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be"
+      }
+    ]
+  },
+  {
+    "id": "rfc3987-1",
+    "category": "RFC3987",
+    "uri_reference": "http://www.example.org/Dürst",
+    "parsed_components": {
+      "scheme": "http",
+      "authority": "www.example.org",
+      "path": "/Dürst",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://a/b/c/d;p?q",
+        "resolved_uri": "http://www.example.org/Dürst"
+      },
+      {
+        "base_uri": "data:text/plain;charset=iso-8859-7,%be%25fg%be",
+        "resolved_uri": "http://www.example.org/Dürst"
+      }
+    ]
+  },
+  {
+    "id": "random-1",
+    "category": "Some random tests",
+    "uri_reference": ";foo",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": ";foo",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://example.com/b;bar",
+        "resolved_uri": "http://example.com/;foo"
+      }
+    ]
+  },
+  {
+    "id": "random-2",
+    "category": "Some random tests",
+    "uri_reference": "http://2.example.org#frag2%20",
+    "parsed_components": {
+      "scheme": "http",
+      "authority": "2.example.org",
+      "path": "",
+      "query": null,
+      "fragment": "frag2%20"
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://1.example.org/path1/file1.ext",
+        "resolved_uri": "http://2.example.org#frag2%20"
+      }
+    ]
+  },
+  {
+    "id": "random-3",
+    "category": "Some random tests",
+    "uri_reference": "?x",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "",
+      "query": "x",
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://example.org/a/b",
+        "resolved_uri": "http://example.org/a/b?x"
+      }
+    ]
+  },
+  {
+    "id": "random-4",
+    "category": "Some random tests",
+    "uri_reference": "http:test",
+    "parsed_components": {
+      "scheme": "http",
+      "authority": null,
+      "path": "test",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "http://example.org/foo/bar",
+        "resolved_uri": "http:test"
+      }
+    ]
+  },
+  {
+    "id": "random-5",
+    "category": "Some random tests",
+    "uri_reference": "Bar.class",
+    "parsed_components": {
+      "scheme": null,
+      "authority": null,
+      "path": "Bar.class",
+      "query": null,
+      "fragment": null
+    },
+    "resolutions": [
+      {
+        "base_uri": "jar:http://example.com/jar?x=1!/com/example/Foo.class",
+        "resolved_uri": "jar:http://example.com/Bar.class"
+      }
+    ]
+  }
+]

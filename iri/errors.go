@@ -21,8 +21,17 @@ import (
 	"fmt"
 )
 
-// newParseError creates a new ParseError, wrapping the original error.
-// It returns nil if the input error is nil.
+// newParseError wraps an existing error into a standardized ParseError.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Parameters:
+//   - err: The source error indicating a violation of the IRI generic syntax.
+//
+// Returns:
+//   - *ParseError: The wrapped parse error structure, or nil if the input
+//     error is nil.
 func newParseError(err error) *ParseError {
 	if err == nil {
 		return nil
@@ -30,22 +39,74 @@ func newParseError(err error) *ParseError {
 	return &ParseError{Message: err.Error(), Err: errors.Unwrap(err)}
 }
 
-// kindError is a specialized error type used by the parser to provide
-// detailed context about a parsing failure.
+// kindError represents the parser syntax error as defined in the governing
+// specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Representation:
+// A structure carrying descriptive failure text, the specific rune where
+// parsing failed, and additional contextual string details.
 type kindError struct {
 	message string
 	char    rune
 	details string
 }
 
-// Error formats the error message with any available character, details, or
-// wrapped error information.
+// Error returns the formatted error string.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2)
+//
+// Returns:
+//   - string: The formatted string detailing the invalid parser state,
+//     incorporating the character or details if available.
 func (e *kindError) Error() string {
 	msg := e.message
 	if e.char != 0 {
+		// Implementation Note: Character formatting.
+		// Fall back to formatting the single invalid rune if present to
+		// provide clear localized error feedback.
 		msg = fmt.Sprintf("%s '%c'", msg, e.char)
 	} else if e.details != "" {
+		// Implementation Note: String formatting.
+		// Use contextual details when no single character is responsible
+		// for the validation failure.
 		msg = fmt.Sprintf("%s '%s'", msg, e.details)
 	}
 	return msg
+}
+
+// BidiGuidelineError represents the bidirectional presentation guideline
+// violation as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 4.2)
+//
+// Representation:
+// A structured error indicating a violation of the recommended
+// bidirectional presentation rules (such as mixed directionality or invalid
+// boundary characters).
+type BidiGuidelineError struct {
+	Rule      string
+	Component string
+	Message   string
+}
+
+// Error returns the formatted error string.
+//
+// Specification Reference:
+// RFC 3987 (Section 4.2)
+//
+// Returns:
+//   - string: The formatted error message detailing the bidirectional
+//     presentation violation.
+func (e *BidiGuidelineError) Error() string {
+	return fmt.Sprintf(
+		"bidirectional presentation violation (%s) in component '%s': %s",
+		e.Rule,
+		e.Component,
+		e.Message,
+	)
 }

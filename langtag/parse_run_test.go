@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package langtag
 
 import (
@@ -79,7 +79,11 @@ func TestPrepareSubtags(t *testing.T) {
 				t.Errorf("prepareSubtags() subtags = %v, want %v", subtags, tc.expectedSubtags)
 			}
 			if hasHyphen != tc.expectedHasHyphen {
-				t.Errorf("prepareSubtags() hasHyphen = %v, want %v", hasHyphen, tc.expectedHasHyphen)
+				t.Errorf(
+					"prepareSubtags() hasHyphen = %v, want %v",
+					hasHyphen,
+					tc.expectedHasHyphen,
+				)
 			}
 		})
 	}
@@ -108,7 +112,11 @@ func TestParsePrivateUseOnly(t *testing.T) {
 			}
 			if err == nil {
 				if !reflect.DeepEqual(cpr.privateuse, tc.expectedPU) {
-					t.Errorf("parsePrivateUseOnly() privateuse = %v, want %v", cpr.privateuse, tc.expectedPU)
+					t.Errorf(
+						"parsePrivateUseOnly() privateuse = %v, want %v",
+						cpr.privateuse,
+						tc.expectedPU,
+					)
 				}
 				if cpr.state != stateInPrivateUse {
 					t.Errorf("Expected state to be stateInPrivateUse")
@@ -128,17 +136,21 @@ func TestCheckFinalState(t *testing.T) {
 		wantErr           error
 	}{
 		{"OK, no trailing hyphen", false, nil, nil},
-		{"OK, trailing hyphen", true, nil, nil},
+		{"Error, trailing hyphen", true, nil, ErrEmptySubtag},
 		{"Empty extension with hyphen", true, func(cpr *canonicalParseRun) {
 			cpr.extensionExpected = true
-		}, ErrEmptyExtension},
+		}, ErrEmptySubtag},
 		{"Empty private use with hyphen", true, func(cpr *canonicalParseRun) {
 			cpr.state = stateInPrivateUse
 			cpr.privateuse = []string{}
-		}, ErrEmptyPrivateUse},
+		}, ErrEmptySubtag},
 		{"Pending extension, no hyphen", false, func(cpr *canonicalParseRun) {
 			cpr.extensionExpected = true
 		}, ErrEmptyExtension},
+		{"Empty private use, no hyphen", false, func(cpr *canonicalParseRun) {
+			cpr.state = stateInPrivateUse
+			cpr.privateuse = []string{}
+		}, ErrEmptyPrivateUse},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -170,7 +182,9 @@ func TestCheckForTooManyExtlangs(t *testing.T) {
 		{"OK, none so far", "gan", 0, true, nil},
 		{"OK, one so far, not an extlang format", "Latn", 1, true, nil},
 		{"Error, one so far, validating", "yue", 1, true, ErrTooManyExtlangs},
-		{"Error, one so far, not validating", "abc", 1, false, ErrTooManyExtlangs},
+		{"OK, one so far, not validating", "abc", 1, false, nil},
+		{"OK, two so far, not validating", "def", 2, false, nil},
+		{"Error, three so far, not validating", "ghi", 3, false, ErrTooManyExtlangs},
 		{"OK, one so far, not in registry", "zzz", 1, true, nil},
 	}
 	for _, tc := range testCases {
@@ -186,7 +200,6 @@ func TestCheckForTooManyExtlangs(t *testing.T) {
 }
 
 // TestHandleSingleton checks the parsing of single-character subtags.
-// RFC 5646, Sections 2.2.6 & 2.2.7 define extension and private-use singletons.
 func TestHandleSingleton(t *testing.T) {
 	p := newTestParser(nil)
 	testCases := []struct {
@@ -260,7 +273,6 @@ func TestHandleSingleton(t *testing.T) {
 }
 
 // TestHandleExtensionSubtag tests the parsing of subtags within an extension sequence.
-// RFC 5646, Section 2.1, 'extension' ABNF production.
 func TestHandleExtensionSubtag(t *testing.T) {
 	p := newTestParser(nil)
 	cpr := p.newCanonicalParseRun("", false)
@@ -293,12 +305,12 @@ func TestHandleExtensionSubtag(t *testing.T) {
 }
 
 // TestTryParseAsVariant verifies the parsing of variant subtags.
-// RFC 5646, Section 2.2.5.
 func TestTryParseAsVariant(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"variant:boche":    {Type: "variant", Subtag: "boche"},
 		"variant:1694":     {Type: "variant", Subtag: "1694"},
 		"variant:scotland": {Type: "variant", Subtag: "scotland"},
+		"en-gb-oed":        {Type: "grandfathered", Tag: "en-GB-oed"},
 	})
 
 	testCases := []struct {
@@ -308,21 +320,36 @@ func TestTryParseAsVariant(t *testing.T) {
 		checkValidity bool
 		expectParse   bool
 		expectedErr   error
+		setup         func(*canonicalParseRun)
 	}{
-		{"Valid alpha variant", "scotland", stateAfterRegion, false, true, nil},
-		{"Valid digit variant", "1694", stateInVariant, false, true, nil},
-		{"Permissive too short alpha", "scot", stateAfterRegion, false, true, nil},
-		{"Permissive too short digit", "169", stateAfterRegion, false, true, nil},
-		{"Valid after script", "scotland", stateAfterScript, false, true, nil},
-		{"Valid format but not in registry", "invalid", stateAfterRegion, true, false, nil},
-		{"Valid and in registry", "boche", stateAfterRegion, true, true, nil},
-		{"Duplicate variant error", "boche", stateInVariant, true, false, ErrDuplicateVariant},
+		{"Valid alpha variant", "scotland", stateAfterRegion, false, true, nil, nil},
+		{"Valid digit variant", "1694", stateInVariant, false, true, nil, nil},
+		{"Strict too short alpha", "scot", stateAfterRegion, false, false, nil, nil},
+		{"Strict too short digit", "169", stateAfterRegion, false, false, nil, nil},
+		{"Valid after script", "scotland", stateAfterScript, false, true, nil, nil},
+		{"Valid format but not in registry", "invalid", stateAfterRegion, true, false, nil, nil},
+		{"Valid and in registry", "boche", stateAfterRegion, true, true, nil, nil},
+		{"Duplicate variant error", "boche", stateInVariant, true, false, ErrDuplicateVariant, nil},
+		{
+			"Valid grandfathered variant",
+			"oed",
+			stateAfterRegion,
+			false,
+			true,
+			nil,
+			func(cpr *canonicalParseRun) {
+				cpr.subtags = []string{"en", "GB", "oed"}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cpr := p.newCanonicalParseRun("", tc.checkValidity)
+			cpr := p.newCanonicalParseRun("en-US", tc.checkValidity)
 			cpr.state = tc.initialState
+			if tc.setup != nil {
+				tc.setup(cpr)
+			}
 			if tc.name == "Duplicate variant error" {
 				cpr.variants = []string{"boche"}
 				cpr.seenVariants = map[string]struct{}{"boche": {}}
@@ -342,7 +369,6 @@ func TestTryParseAsVariant(t *testing.T) {
 }
 
 // TestTryParseAsRegion checks parsing of region subtags.
-// RFC 5646, Section 2.1 (2-letter or 3-digit).
 func TestTryParseAsRegion(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"region:us":  {Type: "region", Subtag: "us"},
@@ -381,7 +407,6 @@ func TestTryParseAsRegion(t *testing.T) {
 }
 
 // TestTryParseAsScript checks parsing of script subtags.
-// RFC 5646, Section 2.1 (4-letter).
 func TestTryParseAsScript(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"script:latn": {Type: "script", Subtag: "Latn"},
@@ -418,7 +443,6 @@ func TestTryParseAsScript(t *testing.T) {
 }
 
 // TestTryParseAsExtlang checks parsing of extended language subtags.
-// RFC 5646, Section 2.1 (3-letter) and Section 2.2.2 (one-extlang limit).
 func TestTryParseAsExtlang(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"extlang:gan": {Type: "extlang", Subtag: "gan", Prefix: []string{"zh"}},
@@ -436,7 +460,10 @@ func TestTryParseAsExtlang(t *testing.T) {
 		{"Valid extlang", "gan", stateAfterLanguage, 0, false, true},
 		{"Invalid format", "ga", stateAfterLanguage, 0, false, false},
 		{"Invalid state", "gan", stateAfterExtLang, 0, false, false},
-		{"Too many extlangs", "yue", stateAfterLanguage, 1, false, false},
+		{"OK second extlang", "yue", stateAfterLanguage, 1, false, true},
+		{"OK third extlang", "yue", stateAfterLanguage, 2, false, true},
+		{"Too many extlangs well-formed", "yue", stateAfterLanguage, 3, false, false},
+		{"Too many extlangs validating", "yue", stateAfterLanguage, 1, true, false},
 		{"Valid but not in registry", "zzz", stateAfterLanguage, 0, true, false},
 		{"Valid and in registry", "yue", stateAfterLanguage, 0, true, true},
 	}
@@ -459,7 +486,6 @@ func TestTryParseAsExtlang(t *testing.T) {
 
 // TestHandleLangtagSubtag verifies the dispatching logic that identifies and
 // processes subtags based on their position, length, and content.
-// RFC 5646, Section 2.1 state machine.
 func TestHandleLangtagSubtag(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:en": {Type: "language", Subtag: "en"},
@@ -469,7 +495,11 @@ func TestHandleLangtagSubtag(t *testing.T) {
 	cpr := p.newCanonicalParseRun("en-US", false)
 	err := cpr.handleLangtagSubtag(0, "en")
 	if err != nil || cpr.language != "en" {
-		t.Errorf("handleLangtagSubtag failed for primary language: err=%v, lang=%s", err, cpr.language)
+		t.Errorf(
+			"handleLangtagSubtag failed for primary language: err=%v, lang=%s",
+			err,
+			cpr.language,
+		)
 	}
 
 	cpr = p.newCanonicalParseRun("en-a-foo", false)
@@ -485,7 +515,40 @@ func TestHandleLangtagSubtag(t *testing.T) {
 	cpr.state = stateAfterLanguage
 	err = cpr.handleLangtagSubtag(1, "Latn")
 	if err != nil || cpr.script != "Latn" || cpr.state != stateAfterScript {
-		t.Errorf("handleLangtagSubtag failed to parse script: err=%v, script=%s, state=%v", err, cpr.script, cpr.state)
+		t.Errorf(
+			"handleLangtagSubtag failed to parse script: err=%v, script=%s, state=%v",
+			err,
+			cpr.script,
+			cpr.state,
+		)
+	}
+
+	cpr = p.newCanonicalParseRun("zh-yue-gan", false)
+	cpr.language = "zh"
+	cpr.state = stateAfterLanguage
+
+	err = cpr.handleLangtagSubtag(1, "yue")
+	if err != nil || len(cpr.extlangs) != 1 || cpr.extlangs[0] != "yue" {
+		t.Errorf(
+			"Expected first extlang to parse successfully: err=%v, extlangs=%v",
+			err,
+			cpr.extlangs,
+		)
+	}
+	if cpr.state != stateAfterLanguage {
+		t.Errorf(
+			"Expected state to remain stateAfterLanguage to allow more extlangs, got %v",
+			cpr.state,
+		)
+	}
+
+	err = cpr.handleLangtagSubtag(2, "gan")
+	if err != nil || len(cpr.extlangs) != 2 || cpr.extlangs[1] != "gan" {
+		t.Errorf(
+			"Expected second extlang to parse successfully: err=%v, extlangs=%v",
+			err,
+			cpr.extlangs,
+		)
 	}
 
 	cpr = p.newCanonicalParseRun("en-123", true)
@@ -498,7 +561,6 @@ func TestHandleLangtagSubtag(t *testing.T) {
 }
 
 // TestHandlePrimaryLanguage validates the parsing of the first subtag.
-// RFC 5646, Section 2.2.1.
 func TestHandlePrimaryLanguage(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:en":       {Type: "language", Subtag: "en"},
@@ -513,21 +575,35 @@ func TestHandlePrimaryLanguage(t *testing.T) {
 		expectedLang  string
 		expectedState parseState
 		expectedErr   error
+		setup         func(*canonicalParseRun)
 	}{
-		{"Valid 2-letter", "en", false, "en", stateAfterLanguage, nil},
-		{"Valid 3-letter", "deu", false, "deu", stateAfterLanguage, nil},
-		{"Valid 5-8 letter", "enochian", false, "enochian", stateAfterExtLang, nil},
-		{"Permissive 1-letter", "e", false, "e", stateAfterLanguage, nil},
-		{"Invalid too long", "longlanguage", false, "", 0, ErrInvalidLanguage},
-		{"Invalid non-alpha", "en1", false, "", 0, ErrInvalidLanguage},
-		{"Valid but not in registry", "zz", true, "", 0, ErrInvalidLanguage},
-		{"Valid and in registry", "en", true, "en", stateAfterLanguage, nil},
-		{"Valid grandfathered 'i' subtag", "i", false, "i", stateAfterLanguage, nil},
+		{"Valid 2-letter", "en", false, "en", stateAfterLanguage, nil, nil},
+		{"Valid 3-letter", "deu", false, "deu", stateAfterLanguage, nil, nil},
+		{"Valid 5-8 letter", "enochian", false, "enochian", stateAfterExtLang, nil, nil},
+		{"Strict 1-letter error", "e", false, "", 0, ErrInvalidLanguage, nil},
+		{"Invalid too long", "longlanguage", false, "", 0, ErrInvalidLanguage, nil},
+		{"Invalid non-alpha", "en1", false, "", 0, ErrInvalidLanguage, nil},
+		{"Valid but not in registry", "zz", true, "", 0, ErrInvalidLanguage, nil},
+		{"Valid and in registry", "en", true, "en", stateAfterLanguage, nil, nil},
+		{
+			"Valid grandfathered 1-letter 'i'",
+			"i",
+			false,
+			"i",
+			stateAfterLanguage,
+			nil,
+			func(cpr *canonicalParseRun) {
+				cpr.subtags = []string{"i", "ami"}
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cpr := p.newCanonicalParseRun("", tc.checkValidity)
+			cpr := p.newCanonicalParseRun("en-US", tc.checkValidity)
+			if tc.setup != nil {
+				tc.setup(cpr)
+			}
 			err := cpr.handlePrimaryLanguage(tc.subtag)
 			if !errors.Is(err, tc.expectedErr) {
 				t.Errorf("handlePrimaryLanguage() error = %v, wantErr %v", err, tc.expectedErr)
@@ -545,7 +621,6 @@ func TestHandlePrimaryLanguage(t *testing.T) {
 }
 
 // TestParse is an integration test for the state machine.
-// RFC 5646, Section 2.1 ABNF.
 func TestParse(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:de":  {Type: "language", Subtag: "de"},
@@ -566,28 +641,77 @@ func TestParse(t *testing.T) {
 		finalChecks func(*testing.T, *canonicalParseRun)
 	}{
 		{"Valid full tag", "en-Latn-US", nil, true, nil},
-		{"Private use only", "x-my-own-tag", nil, false, func(t *testing.T, cpr *canonicalParseRun) {
-			if !reflect.DeepEqual(cpr.privateuse, []string{"my", "own", "tag"}) {
-				t.Error("Private use was not parsed correctly")
-			}
-		}},
-		{"Final subtag is extension", "en-a-foo", nil, false, func(t *testing.T, cpr *canonicalParseRun) {
-			if cpr.extensionExpected {
-				t.Error("extensionExpected should be false at end of parse")
-			}
-		}},
+		{
+			"Private use only",
+			"x-my-own-tag",
+			nil,
+			false,
+			func(t *testing.T, cpr *canonicalParseRun) {
+				if !reflect.DeepEqual(cpr.privateuse, []string{"my", "own", "tag"}) {
+					t.Error("Private use was not parsed correctly")
+				}
+			},
+		},
+		{
+			"Final subtag is extension",
+			"en-a-foo",
+			nil,
+			false,
+			func(t *testing.T, cpr *canonicalParseRun) {
+				if cpr.extensionExpected {
+					t.Error("extensionExpected should be false at end of parse")
+				}
+			},
+		},
+		{
+			"Tag with private use subtags (well-formed)",
+			"en-x-priv1-priv2",
+			nil,
+			false,
+			func(t *testing.T, cpr *canonicalParseRun) {
+				if !reflect.DeepEqual(cpr.privateuse, []string{"priv1", "priv2"}) {
+					t.Errorf("Private use was not parsed correctly: got %v, want [priv1 priv2]", cpr.privateuse)
+				}
+				if cpr.state != stateInPrivateUse {
+					t.Errorf("Expected stateInPrivateUse, got %v", cpr.state)
+				}
+			},
+		},
+		{
+			"Tag with private use subtags (validating)",
+			"en-US-x-custom",
+			nil,
+			true,
+			func(t *testing.T, cpr *canonicalParseRun) {
+				if !reflect.DeepEqual(cpr.privateuse, []string{"custom"}) {
+					t.Errorf("Private use was not parsed correctly: got %v, want [custom]", cpr.privateuse)
+				}
+				if cpr.state != stateInPrivateUse {
+					t.Errorf("Expected stateInPrivateUse, got %v", cpr.state)
+				}
+			},
+		},
 		{"ErrEmptySubtag", "en--US", ErrEmptySubtag, false, nil},
 		{"ErrEmptySubtag in private use", "x-a--b", ErrEmptySubtag, false, nil},
 		{"ErrSubtagTooLong", "en-abcdefghi", ErrSubtagTooLong, false, nil},
 		{"ErrSubtagTooLong in private use", "x-abcdefghi", ErrSubtagTooLong, false, nil},
 		{"ErrEmptyPrivateUse", "x", ErrEmptyPrivateUse, false, nil},
 		{"ErrEmptyExtension at end", "en-a", ErrEmptyExtension, false, nil},
-		{"ErrEmptyPrivateUse with trailing hyphen", "en-x-", ErrEmptyPrivateUse, false, nil},
+		{"ErrEmptyPrivateUse with trailing hyphen", "en-x-", ErrEmptySubtag, false, nil},
+		{"ErrEmptyPrivateUse standard tag", "en-x", ErrEmptyPrivateUse, false, nil},
+		{
+			"ErrEmptySubtag private-use-only with trailing hyphen",
+			"x-a-",
+			ErrEmptySubtag,
+			false,
+			nil,
+		},
 		{"ErrTooManyExtlangs", "zh-gan-yue", ErrTooManyExtlangs, true, nil},
 		{"ErrDuplicateVariant", "de-1901-1901", ErrDuplicateVariant, true, nil},
 		{"ErrDuplicateSingleton", "en-a-foo-a-bar", ErrDuplicateSingleton, true, nil},
 		{"ErrInvalidSubtag", "en-US-1234", ErrInvalidSubtag, true, nil},
-		{"ErrTooManyExtlangs non-validating", "en-abc-def", ErrTooManyExtlangs, false, nil},
+		{"Valid non-validating multi-extlang", "en-abc-def", nil, false, nil},
+		{"ErrTooManyExtlangs non-validating", "en-abc-def-ghi-jkl", ErrTooManyExtlangs, false, nil},
 	}
 
 	for _, tc := range testCases {
@@ -620,5 +744,40 @@ func TestNewCanonicalParseRun(t *testing.T) {
 	}
 	if !cpr.checkValidity {
 		t.Error("checkValidity flag not set correctly.")
+	}
+}
+
+// TestIsTagGrandfathered verifies the detection of grandfathered tags with and without registry data.
+func TestIsTagGrandfathered(t *testing.T) {
+	pWithReg := newTestParser(map[string]Record{
+		"en-gb-oed":            {Type: "grandfathered", Tag: "en-GB-oed"},
+		"custom-grandfathered": {Type: "grandfathered", Tag: "custom-grandfathered"},
+		"custom-redundant":     {Type: "redundant", Tag: "custom-redundant"},
+	})
+	pWithoutReg := newTestParser(nil)
+
+	testCases := []struct {
+		name     string
+		parser   *Parser
+		tag      string
+		expected bool
+	}{
+		{"Static list match without registry", pWithoutReg, "en-GB-oed", true},
+		{"Static list match with registry", pWithReg, "en-GB-oed", true},
+		{"Registry grandfathered match not in static list", pWithReg, "custom-grandfathered", true},
+		{"Registry redundant match not in static list", pWithReg, "custom-redundant", true},
+		{"Irregular tag without registry", pWithoutReg, "i-default", true},
+		{"Regular tag without registry", pWithoutReg, "zh-min-nan", true},
+		{"Non-grandfathered tag with registry", pWithReg, "en-US", false},
+		{"Non-grandfathered tag without registry", pWithoutReg, "en-US", false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cpr := tc.parser.newCanonicalParseRun(tc.tag, false)
+			if got := cpr.isTagGrandfathered(); got != tc.expected {
+				t.Errorf("isTagGrandfathered() = %v, want %v", got, tc.expected)
+			}
+		})
 	}
 }

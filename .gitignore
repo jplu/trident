@@ -5,7 +5,13 @@
 .vscode/
 
 # Content files
-content.*
+content.py
+*.txt
+*.log
+*.logs
+
+# Scripts
+scripts/
 
 # Binaries for programs and plugins
 *.exe

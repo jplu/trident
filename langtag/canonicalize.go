@@ -21,23 +21,44 @@ import (
 	"strings"
 )
 
-// canonicalize applies all canonicalization rules from RFC 5646, Sec 4.5.
+// canonicalize applies all canonicalization rules to the parse run.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.5).
 func (cpr *canonicalParseRun) canonicalize() {
+	// Step 1: Extlang Replacement
+	// Replaces an extended language subtag with its preferred primary language subtag.
 	cpr.canonicalizeExtlangToPrimary()
+
+	// Step 2: Deprecated Subtag Substitution
+	// Replaces any deprecated subtags with their preferred-value alternatives.
 	cpr.canonicalizeDeprecated()
+
+	// Step 3: Variant Reordering
+	// Sorts variant subtags according to mutual prefix dependencies and alphabetical fallback.
 	cpr.canonicalizeVariantOrder()
-	cpr.canonicalizeScriptSuppression()
+
+	// Step 4: Extension Ordering
+	// Reorders extension segments alphabetically by their case-insensitive singleton.
 	cpr.canonicalizeExtensionOrder()
 }
 
-// canonicalizeExtlangToPrimary replaces an extlang with its preferred primary language subtag.
+// canonicalizeExtlangToPrimary replaces an extlang subtag with its preferred primary language subtag.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.5).
 func (cpr *canonicalParseRun) canonicalizeExtlangToPrimary() {
+	// Spec Rule: RFC 5646 (Section 4.5)
+	// Subtags are replaced by their 'Preferred-Value', if there is one. For extlangs, the original primary language
+	// subtag is also replaced if there is a primary language subtag in the 'Preferred-Value'.
 	if len(cpr.extlangs) == 0 {
 		return
 	}
 	lowerLang := strings.ToLower(cpr.language)
 	lowerExtlang := strings.ToLower(cpr.extlangs[0])
 
+	// Implementation Note: Case-insensitive registry lookup
+	// Format the registry search key using the prefix and lowercased extlang name.
 	key := "extlang:" + lowerExtlang
 	rec, ok := cpr.parent.registry.Records[key]
 	if !ok || rec.Type != typeExtlang {
@@ -57,8 +78,13 @@ func (cpr *canonicalParseRun) canonicalizeExtlangToPrimary() {
 	}
 }
 
-// canonicalizeDeprecated replaces individual deprecated subtags with their 'Preferred-Value'.
+// canonicalizeDeprecated replaces individual deprecated subtags with their preferred value.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.5).
 func (cpr *canonicalParseRun) canonicalizeDeprecated() {
+	// Spec Rule: RFC 5646 (Section 4.5)
+	// Redundant or grandfathered tags and individual subtags are replaced by their 'Preferred-Value', if there is one.
 	replaceIfPreferred := func(subtag, subtagType string) string {
 		if subtag == "" {
 			return ""
@@ -70,16 +96,40 @@ func (cpr *canonicalParseRun) canonicalizeDeprecated() {
 		return subtag
 	}
 
+	// Step 1: Replace Language Subtag
+	// Evaluates and updates the primary language subtag.
 	cpr.language = replaceIfPreferred(cpr.language, "language")
+
+	// Step 2: Replace Script Subtag
+	// Evaluates and updates the script subtag.
 	cpr.script = replaceIfPreferred(cpr.script, "script")
+
+	// Step 3: Replace Region Subtag
+	// Evaluates and updates the region subtag.
 	cpr.region = replaceIfPreferred(cpr.region, "region")
+
+	// Step 4: Replace Variant Subtags
+	// Iterates and updates each variant subtag individually.
 	for i, v := range cpr.variants {
 		cpr.variants[i] = replaceIfPreferred(v, "variant")
 	}
 }
 
-// compareVariants is a helper for sorting variants based on prefix dependencies.
+// compareVariants compares two variant subtags to determine their correct relative order.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.1)
+//
+// Parameters:
+//   - variantI: The first variant subtag to compare.
+//   - variantJ: The second variant subtag to compare.
+//
+// Returns:
+//   - bool: True if variantI should be ordered before variantJ, false otherwise.
 func (cpr *canonicalParseRun) compareVariants(variantI, variantJ string) bool {
+	// Spec Rule: RFC 5646 (Section 4.1)
+	// If a variant lists a second variant in one of its 'Prefix' fields, the first variant SHOULD appear directly after
+	// the second variant in any language tag where both occur.
 	keyI := "variant:" + strings.ToLower(variantI)
 	keyJ := "variant:" + strings.ToLower(variantJ)
 	recI, okI := cpr.parent.registry.Records[keyI]
@@ -96,11 +146,14 @@ func (cpr *canonicalParseRun) compareVariants(variantI, variantJ string) bool {
 		return false
 	}
 
+	// Implementation Note: Circular prefix checking
+	// Check if variant J is a registered prefix dependency for variant I.
 	if okI && prefixContainsVariant(recI.Prefix, variantJ) {
-		return false // J is in I's prefix, so I must come after J.
+		return false // Variant J is in I's prefix, so I must come after J.
 	}
+	// Check if variant I is a registered prefix dependency for variant J.
 	if okJ && prefixContainsVariant(recJ.Prefix, variantI) {
-		return true // I is in J's prefix, so I must come before J.
+		return true // Variant I is in J's prefix, so I must come before J.
 	}
 
 	hasPrefixI := okI && len(recI.Prefix) > 0
@@ -109,11 +162,20 @@ func (cpr *canonicalParseRun) compareVariants(variantI, variantJ string) bool {
 		return hasPrefixI // A variant with a prefix is more specific and comes first.
 	}
 
-	return variantI < variantJ // Fallback to alphabetical order.
+	// Implementation Note: Case-insensitive sorting
+	// Convert both variant strings to lowercase before checking lexicographical ordering to ensure consistent
+	// canonicalization.
+	return strings.ToLower(variantI) < strings.ToLower(variantJ)
 }
 
-// canonicalizeVariantOrder reorders variant subtags based on prefix dependencies.
+// canonicalizeVariantOrder reorders variant subtags based on prefix dependencies and alphabetical fallback.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.1).
 func (cpr *canonicalParseRun) canonicalizeVariantOrder() {
+	// Spec Rule: RFC 5646 (Section 4.5)
+	// If more than one variant appears within a tag, processors MAY reorder the variants to obtain better matching
+	// behavior or more consistent presentation.
 	if len(cpr.variants) <= 1 {
 		return
 	}
@@ -122,8 +184,14 @@ func (cpr *canonicalParseRun) canonicalizeVariantOrder() {
 	})
 }
 
-// canonicalizeScriptSuppression removes redundant script subtags.
+// canonicalizeScriptSuppression removes redundant script subtags when they match the suppressed script of the language.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.1).
 func (cpr *canonicalParseRun) canonicalizeScriptSuppression() {
+	// Spec Rule: RFC 5646 (Section 4.1)
+	// The script subtag SHOULD NOT be used to form language tags unless the script adds some distinguishing information
+	// to the tag. The 'Suppress-Script' field defines when users SHOULD NOT include a script subtag.
 	if cpr.script == "" {
 		return
 	}
@@ -134,8 +202,13 @@ func (cpr *canonicalParseRun) canonicalizeScriptSuppression() {
 	}
 }
 
-// canonicalizeExtensionOrder sorts extensions by their singleton character.
+// canonicalizeExtensionOrder sorts extension subtags by their singleton character in case-insensitive ASCII order.
+//
+// Specification Reference:
+// RFC 5646 (Section 4.5).
 func (cpr *canonicalParseRun) canonicalizeExtensionOrder() {
+	// Spec Rule: RFC 5646 (Section 4.5)
+	// Extension sequences are ordered into case-insensitive ASCII order by singleton subtag.
 	if len(cpr.extensions) > 1 {
 		sort.Slice(cpr.extensions, func(i, j int) bool {
 			return cpr.extensions[i].Singleton < cpr.extensions[j].Singleton

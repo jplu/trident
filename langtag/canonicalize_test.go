@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+//nolint:testpackage // White-box test in the same package to access unexported functions.
 package langtag
 
 import (
@@ -23,7 +23,6 @@ import (
 )
 
 // TestCanonicalizeExtensionOrder verifies that extensions are sorted by singleton.
-// RFC 5646, Section 4.5.
 func TestCanonicalizeExtensionOrder(t *testing.T) {
 	cpr := &canonicalParseRun{
 		extensions: []Extension{
@@ -37,19 +36,23 @@ func TestCanonicalizeExtensionOrder(t *testing.T) {
 	expectedOrder := []rune{'a', 'm', 'z'}
 	for i, ext := range cpr.extensions {
 		if ext.Singleton != expectedOrder[i] {
-			t.Errorf("Expected singleton at index %d to be '%c', but got '%c'", i, expectedOrder[i], ext.Singleton)
+			t.Errorf(
+				"Expected singleton at index %d to be '%c', but got '%c'",
+				i,
+				expectedOrder[i],
+				ext.Singleton,
+			)
 		}
 	}
 
 	cprSingle := &canonicalParseRun{extensions: []Extension{{Singleton: 'a', Value: "one"}}}
 	cprSingle.canonicalizeExtensionOrder()
 	if len(cprSingle.extensions) != 1 || cprSingle.extensions[0].Singleton != 'a' {
-		t.Error("canonicalizeExtensionOrder modified a single-element slice")
+		t.Error("canonicalizeExtensionOrder modified a single-element slice.")
 	}
 }
 
 // TestCanonicalizeScriptSuppression ensures redundant script subtags are removed.
-// RFC 5646, Section 3.1.9.
 func TestCanonicalizeScriptSuppression(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:en": {Type: "language", Subtag: "en", SuppressScript: "Latn"},
@@ -87,7 +90,6 @@ func TestCanonicalizeScriptSuppression(t *testing.T) {
 }
 
 // TestCompareVariants checks the logic for sorting variants based on their Prefix fields.
-// RFC 5646, Section 4.1, point 6.
 func TestCompareVariants(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"variant:a":        {Type: "variant", Subtag: "a", Prefix: []string{"de-b"}},
@@ -117,6 +119,12 @@ func TestCompareVariants(t *testing.T) {
 		{"d", "b", false},
 		{"b", "c", true},
 		{"c", "b", false},
+		{"ROZAJ", "biske", true},
+		{"Biske", "ROZAJ", false},
+		{"b", "A", true},
+		{"A", "b", false},
+		{"Zeta", "alef", false},
+		{"alef", "Zeta", true},
 	}
 
 	for _, tc := range testCases {
@@ -129,7 +137,6 @@ func TestCompareVariants(t *testing.T) {
 }
 
 // TestCanonicalizeVariantOrder checks that variants are reordered correctly.
-// RFC 5646, Section 4.5.
 func TestCanonicalizeVariantOrder(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"variant:1994":  {Type: "variant", Subtag: "1994", Prefix: []string{"sl-rozaj-biske"}},
@@ -142,7 +149,22 @@ func TestCanonicalizeVariantOrder(t *testing.T) {
 	cpr.canonicalizeVariantOrder()
 	expected := []string{"rozaj", "biske", "1994"}
 	if !reflect.DeepEqual(cpr.variants, expected) {
-		t.Errorf("canonicalizeVariantOrder() failed.\nGot:      %v\nExpected: %v", cpr.variants, expected)
+		t.Errorf(
+			"canonicalizeVariantOrder() failed.\nGot:      %v\nExpected: %v",
+			cpr.variants,
+			expected,
+		)
+	}
+
+	cpr.variants = []string{"Zeta", "alef"}
+	cpr.canonicalizeVariantOrder()
+	expectedCI := []string{"alef", "Zeta"}
+	if !reflect.DeepEqual(cpr.variants, expectedCI) {
+		t.Errorf(
+			"canonicalizeVariantOrder() with mixed-case failed.\nGot:      %v\nExpected: %v",
+			cpr.variants,
+			expectedCI,
+		)
 	}
 
 	cpr.variants = []string{"rozaj"}
@@ -152,8 +174,7 @@ func TestCanonicalizeVariantOrder(t *testing.T) {
 	}
 }
 
-// TestCanonicalizeDeprecated verifies that deprecated subtags are replaced by their
-// Preferred-Value. RFC 5646, Section 4.5.
+// TestCanonicalizeDeprecated verifies that deprecated subtags are replaced by their preferred values.
 func TestCanonicalizeDeprecated(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:iw":    {Type: "language", Subtag: "iw", PreferredValue: "he"},
@@ -175,7 +196,10 @@ func TestCanonicalizeDeprecated(t *testing.T) {
 		t.Errorf("Expected deprecated region 'zr' to be replaced by 'cd', got '%s'", cpr.region)
 	}
 	if len(cpr.variants) != 1 || cpr.variants[0] != "goodvar" {
-		t.Errorf("Expected deprecated variant 'badvar' to be replaced by 'goodvar', got '%v'", cpr.variants)
+		t.Errorf(
+			"Expected deprecated variant 'badvar' to be replaced by 'goodvar', got '%v'",
+			cpr.variants,
+		)
 	}
 	if cpr.script != "Latn" {
 		t.Errorf("Script without preferred value was changed.")
@@ -188,14 +212,24 @@ func TestCanonicalizeDeprecated(t *testing.T) {
 	}
 }
 
-// TestCanonicalizeExtlangToPrimary checks the canonicalization rule from RFC 5646,
-// Section 4.5, where a language-extlang combination is replaced by the extlang's
+// TestCanonicalizeExtlangToPrimary checks the canonicalization rule,
+// where a language-extlang combination is replaced by the extlang's
 // primary language subtag equivalent.
 func TestCanonicalizeExtlangToPrimary(t *testing.T) {
 	p := newTestParser(map[string]Record{
 		"language:zh": {Type: "language", Subtag: "zh"},
-		"extlang:cmn": {Type: "extlang", Subtag: "cmn", Prefix: []string{"zh"}, PreferredValue: "cmn"},
-		"extlang:hak": {Type: "extlang", Subtag: "hak", Prefix: []string{"zh"}, PreferredValue: "hak"},
+		"extlang:cmn": {
+			Type:           "extlang",
+			Subtag:         "cmn",
+			Prefix:         []string{"zh"},
+			PreferredValue: "cmn",
+		},
+		"extlang:hak": {
+			Type:           "extlang",
+			Subtag:         "hak",
+			Prefix:         []string{"zh"},
+			PreferredValue: "hak",
+		},
 		"extlang:gan": {Type: "extlang", Subtag: "gan", Prefix: []string{"zh"}},
 		"extlang:aao": {Type: "extlang", Subtag: "aao", Prefix: []string{"ar"}},
 	})
@@ -205,7 +239,11 @@ func TestCanonicalizeExtlangToPrimary(t *testing.T) {
 	cpr.extlangs = []string{"cmn"}
 	cpr.canonicalizeExtlangToPrimary()
 	if cpr.language != "cmn" || len(cpr.extlangs) != 0 {
-		t.Errorf("Expected 'zh-cmn' to canonicalize to 'cmn', got lang='%s', extlangs=%v", cpr.language, cpr.extlangs)
+		t.Errorf(
+			"Expected 'zh-cmn' to canonicalize to 'cmn', got lang='%s', extlangs=%v",
+			cpr.language,
+			cpr.extlangs,
+		)
 	}
 
 	cpr.language = "zh"
@@ -242,12 +280,17 @@ func TestCanonicalizeExtlangToPrimary(t *testing.T) {
 }
 
 // TestCanonicalize serves as an integration test for the entire canonicalization
-// process. RFC 5646, Section 4.5.
+// process.
 func TestCanonicalize(t *testing.T) {
 	p := newTestParser(map[string]Record{
-		"language:en":   {Type: "language", Subtag: "en", SuppressScript: "Latn"},
-		"language:zh":   {Type: "language", Subtag: "zh"},
-		"extlang:cmn":   {Type: "extlang", Subtag: "cmn", Prefix: []string{"zh"}, PreferredValue: "cmn"},
+		"language:en": {Type: "language", Subtag: "en", SuppressScript: "Latn"},
+		"language:zh": {Type: "language", Subtag: "zh"},
+		"extlang:cmn": {
+			Type:           "extlang",
+			Subtag:         "cmn",
+			Prefix:         []string{"zh"},
+			PreferredValue: "cmn",
+		},
 		"script:latn":   {Type: "script", Subtag: "Latn"},
 		"region:bu":     {Type: "region", Subtag: "bu", PreferredValue: "mm"},
 		"variant:biske": {Type: "variant", Subtag: "biske", Prefix: []string{"sl-rozaj"}},
@@ -278,8 +321,21 @@ func TestCanonicalize(t *testing.T) {
 	if !reflect.DeepEqual(cpr.variants, expectedVariants) {
 		t.Errorf("Expected variants %v, got %v", expectedVariants, cpr.variants)
 	}
-	expectedExtensions := []Extension{{Singleton: 'a', Value: "ext1"}, {Singleton: 'b', Value: "ext2"}}
+	expectedExtensions := []Extension{
+		{Singleton: 'a', Value: "ext1"},
+		{Singleton: 'b', Value: "ext2"},
+	}
 	if !reflect.DeepEqual(cpr.extensions, expectedExtensions) {
 		t.Errorf("Expected extensions %v, got %v", expectedExtensions, cpr.extensions)
+	}
+
+	cprSuppressed := p.newCanonicalParseRun("en-Latn", true)
+	cprSuppressed.language = "en"
+	cprSuppressed.script = "Latn"
+	cprSuppressed.canonicalize()
+	if cprSuppressed.script != "Latn" {
+		t.Errorf(
+			"Expected script 'Latn' not to be suppressed during standard canonicalize, but it was.",
+		)
 	}
 }
