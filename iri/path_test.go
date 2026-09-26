@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import (
@@ -22,7 +23,7 @@ import (
 	"testing"
 )
 
-// Tests for `applyDotSegmentRules` are based on RFC 3986, Section 5.2.4, Step 2.
+// TestApplyDotSegmentRules tests the applyDotSegmentRules function with various dot-segment rules.
 func TestApplyDotSegmentRules(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -66,7 +67,7 @@ func TestApplyDotSegmentRules(t *testing.T) {
 		},
 		{
 			name: "Rule 2C: /../ with single relative segment in output", in: "/../b", output: []string{"a"},
-			expectedIn: "b", expectedOut: []string{}, expectedOk: true,
+			expectedIn: "/b", expectedOut: []string{}, expectedOk: true,
 		},
 		{
 			name: "Rule 2D: . exact", in: ".", output: []string{},
@@ -102,7 +103,7 @@ func TestApplyDotSegmentRules(t *testing.T) {
 	}
 }
 
-// Tests for `extractFirstSegment` are based on RFC 3986, Section 5.2.4, Step 2.E.
+// TestExtractFirstSegment tests extracting the first segment from a path string.
 func TestExtractFirstSegment(t *testing.T) {
 	testCases := []struct {
 		name              string
@@ -161,7 +162,7 @@ func TestExtractFirstSegment(t *testing.T) {
 	}
 }
 
-// Tests for `removeDotSegments` are based on the examples from RFC 3986.
+// TestRemoveDotSegments tests removing dot segments from paths according to RFC specifications.
 func TestRemoveDotSegments(t *testing.T) {
 	basePathDir := "/a/b/c/"
 
@@ -196,7 +197,7 @@ func TestRemoveDotSegments(t *testing.T) {
 		{"RFC 5.4.2 ./g/.", basePathDir + "./g/.", "/a/b/c/g/"},
 		{"RFC 5.4.2 g/./h", basePathDir + "g/./h", "/a/b/c/g/h"},
 		{"RFC 5.4.2 g/../h", basePathDir + "g/../h", "/a/b/c/h"},
-		{"RFC 5.4.2 a/../b", "a/../b", "b"},
+		{"RFC 5.4.2 a/../b", "a/../b", "/b"},
 		{"Empty string", "", ""},
 		{"Single slash", "/", "/"},
 		{"Double slash", "//", "//"},
@@ -216,7 +217,7 @@ func TestRemoveDotSegments(t *testing.T) {
 	}
 }
 
-// Tests for `resolvePath` are based on RFC 3986, Section 5.2.3, "Merge Paths".
+// TestResolvePath tests resolving a relative path against a base path.
 func TestResolvePath(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -226,10 +227,20 @@ func TestResolvePath(t *testing.T) {
 	}{
 		{name: "RFC merge example 1", basePath: "/a/b/c/d;p", relPath: "g", expected: "/a/b/c/g"},
 		{name: "RFC merge example 2", basePath: "/a/b/c/d;p", relPath: "./g", expected: "/a/b/c/g"},
-		{name: "RFC merge with up-directory", basePath: "/a/b/c/d;p", relPath: "../g", expected: "/a/b/g"},
+		{
+			name:     "RFC merge with up-directory",
+			basePath: "/a/b/c/d;p",
+			relPath:  "../g",
+			expected: "/a/b/g",
+		},
 		{name: "Base path is a directory", basePath: "/a/b/c/", relPath: "g", expected: "/a/b/c/g"},
 		{name: "Base path has no slashes", basePath: "a", relPath: "b", expected: "b"},
-		{name: "Base path has no slashes with up-directory", basePath: "a", relPath: "../g", expected: "g"},
+		{
+			name:     "Base path has no slashes with up-directory",
+			basePath: "a",
+			relPath:  "../g",
+			expected: "g",
+		},
 		{name: "Base path is empty", basePath: "", relPath: "a/b", expected: "a/b"},
 		{name: "Relative path is empty", basePath: "/a/b/c", relPath: "", expected: "/a/b/"},
 		{name: "Base path is root", basePath: "/", relPath: "a", expected: "/a"},
@@ -239,7 +250,13 @@ func TestResolvePath(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := resolvePath(tc.basePath, tc.relPath); got != tc.expected {
-				t.Errorf("resolvePath(%q, %q) = %q, want %q", tc.basePath, tc.relPath, got, tc.expected)
+				t.Errorf(
+					"resolvePath(%q, %q) = %q, want %q",
+					tc.basePath,
+					tc.relPath,
+					got,
+					tc.expected,
+				)
 			}
 		})
 	}

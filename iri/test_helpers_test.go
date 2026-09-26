@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import (
@@ -52,7 +53,6 @@ func assertError(t *testing.T, got, want error) {
 		return
 	}
 
-	// Check for sentinel errors first.
 	if errors.Is(want, errNoScheme) || errors.Is(want, errPathStartingWithSlashes) {
 		if !errors.Is(got, want) {
 			t.Errorf("got error %v, want sentinel error %v", got, want)
@@ -60,7 +60,6 @@ func assertError(t *testing.T, got, want error) {
 		return
 	}
 
-	// Check for kindError.
 	var wantKE *kindError
 	if errors.As(want, &wantKE) {
 		var gotKE *kindError
@@ -74,7 +73,6 @@ func assertError(t *testing.T, got, want error) {
 		return
 	}
 
-	// Fallback for any other error type.
 	if !errors.Is(got, want) {
 		t.Errorf("got error %v, want %v", got, want)
 	}
@@ -98,4 +96,13 @@ func mustParseIri(t *testing.T, s string) *Iri {
 		t.Fatalf("mustParseIri failed for input '%s': %v", s, err)
 	}
 	return i
+}
+
+// mustParseAbsoluteIri parses a string into an Iri for tests, panicking if the string is invalid.
+func mustParseAbsoluteIri(s string) *Iri {
+	iri, err := ParseIri(s)
+	if err != nil {
+		panic("test setup failed: could not parse base IRI: " + s)
+	}
+	return iri
 }

@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package langtag
 
 import (
@@ -61,9 +62,8 @@ func mustParseAndNormalize(t *testing.T, tag string) LanguageTag {
 	return lt
 }
 
-// TestParser_Parse tests the non-validating Parse method.
-// RFC 5646 Section 2.2.9 defines "well-formed" as conforming to the ABNF.
-func TestParser_Parse(t *testing.T) {
+// TestParserParse tests the non-validating Parse method.
+func TestParserParse(t *testing.T) {
 	tests := []struct {
 		name    string
 		tag     string
@@ -78,6 +78,7 @@ func TestParser_Parse(t *testing.T) {
 		{name: "Private use only", tag: "x-whatever", wantTag: "x-whatever"},
 		{name: "Grandfathered irregular", tag: "i-klingon", wantTag: "i-klingon"},
 		{name: "Grandfathered regular", tag: "art-lojban", wantTag: "art-lojban"},
+		{name: "Redundant grandfathered tag", tag: "az-Latn", wantTag: "az-Latn"},
 		{name: "Extension", tag: "en-a-myext-b-another", wantTag: "en-a-myext-b-another"},
 		{name: "Unregistered language", tag: "zz-US", wantTag: "zz-US"},
 		{name: "Unregistered script", tag: "en-Zzzz-US", wantTag: "en-Zzzz-US"},
@@ -87,8 +88,17 @@ func TestParser_Parse(t *testing.T) {
 		{name: "Empty subtag", tag: "en--US", wantErr: ErrEmptySubtag},
 		{name: "Subtag too long", tag: "verylongsubtag-en", wantErr: ErrSubtagTooLong},
 		{name: "Empty private use", tag: "x-", wantErr: ErrEmptyPrivateUse},
-		{name: "Empty extension", tag: "en-a-", wantErr: ErrEmptyExtension},
+		{name: "Empty extension", tag: "en-a", wantErr: ErrEmptyExtension},
 		{name: "Empty extension sequence", tag: "en-a-b-foo", wantErr: ErrEmptyExtension},
+		{name: "Empty private use after lang", tag: "en-x", wantErr: ErrEmptyPrivateUse},
+		{name: "Private use only trailing hyphen", tag: "x-a-", wantErr: ErrEmptySubtag},
+		{name: "Well-formed two extlangs", tag: "zh-cmn-yue", wantTag: "zh-cmn-yue"},
+		{name: "Well-formed three extlangs", tag: "zh-cmn-yue-abc", wantTag: "zh-cmn-yue-abc"},
+		{
+			name:    "Four extlangs (syntax error)",
+			tag:     "zh-cmn-yue-abc-def",
+			wantErr: ErrTooManyExtlangs,
+		},
 	}
 
 	for _, tt := range tests {
@@ -106,9 +116,8 @@ func TestParser_Parse(t *testing.T) {
 	}
 }
 
-// TestParser_ParseAndNormalize tests the validating and canonicalizing ParseAndNormalize method.
-// RFC 5646 Section 4.5 defines canonicalization. Section 2.2.9 defines validity.
-func TestParser_ParseAndNormalize(t *testing.T) {
+// TestParserParseAndNormalize tests the validating and canonicalizing ParseAndNormalize method.
+func TestParserParseAndNormalize(t *testing.T) {
 	tests := []struct {
 		name    string
 		tag     string
@@ -119,10 +128,11 @@ func TestParser_ParseAndNormalize(t *testing.T) {
 		{name: "Grandfathered replacement (art-lojban)", tag: "art-lojban", wantTag: "jbo"},
 		{name: "Grandfathered replacement (i-klingon)", tag: "i-klingon", wantTag: "tlh"},
 		{name: "Grandfathered no-replacement", tag: "i-enochian", wantTag: "i-enochian"},
+		{name: "Redundant tag no-replacement", tag: "az-Latn", wantTag: "az-Latn"},
 		{name: "Subtag replacement", tag: "en-BU", wantTag: "en-MM"},
 		{name: "Extlang canonicalization", tag: "zh-gan", wantTag: "gan"},
 		{name: "Extension reordering", tag: "en-b-ccc-a-aaa", wantTag: "en-a-aaa-b-ccc"},
-		{name: "Script suppression", tag: "is-Latn", wantTag: "is"},
+		{name: "No script suppression in canonical form", tag: "is-Latn", wantTag: "is-Latn"},
 		{name: "Case canonicalization", tag: "SR-LATN-rs", wantTag: "sr-Latn-RS"},
 		{name: "Invalid language subtag", tag: "zz-US", wantErr: ErrInvalidLanguage},
 		{name: "Invalid region subtag", tag: "en-BOGUS", wantErr: ErrInvalidSubtag},
@@ -147,9 +157,28 @@ func TestParser_ParseAndNormalize(t *testing.T) {
 	}
 }
 
-// TestParser_ToExtlangForm tests converting a canonical tag to its extlang form.
-// RFC 5646 Section 4.5.
-func TestParser_ToExtlangForm(t *testing.T) {
+// TestParserParseAndNormalizeGrandfatheredNotInRegistry tests ParseAndNormalize with a grandfathered tag
+// when the tag is not present in the registry.
+func TestParserParseAndNormalizeGrandfatheredNotInRegistry(t *testing.T) {
+	emptyParser := &Parser{
+		registry: &Registry{
+			Records: make(map[string]Record),
+		},
+	}
+	lt, err := emptyParser.ParseAndNormalize("i-enochian")
+	if err != nil {
+		t.Fatalf("ParseAndNormalize failed: %v", err)
+	}
+	if lt.String() != "i-enochian" {
+		t.Errorf("Expected tag to be 'i-enochian', got %q", lt.String())
+	}
+	if !lt.IsGrandfathered() {
+		t.Error("Expected tag to be grandfathered")
+	}
+}
+
+// TestParserToExtlangForm tests converting a canonical tag to its extlang form.
+func TestParserToExtlangForm(t *testing.T) {
 	tests := []struct {
 		name        string
 		tag         string
@@ -161,7 +190,12 @@ func TestParser_ToExtlangForm(t *testing.T) {
 		{name: "Canonical to extlang", tag: "hak-CN", wantTag: "zh-hak-CN"},
 		{name: "Primary language is an extlang", tag: "yue", wantTag: "zh-yue"},
 		{name: "Language is not an extlang", tag: "en-US", expectNoop: true},
-		{name: "Tag is already in extlang form", tag: "zh-hak-CN", wantTag: "zh-hak-CN", expectNoop: false},
+		{
+			name:       "Tag is already in extlang form",
+			tag:        "zh-hak-CN",
+			wantTag:    "zh-hak-CN",
+			expectNoop: false,
+		},
 		{name: "Grandfathered tag", tag: "i-klingon", expectNoop: true, isGrandfath: true},
 		{name: "Private use only tag", tag: "x-my-tag", expectNoop: true},
 	}
@@ -195,9 +229,124 @@ func TestParser_ToExtlangForm(t *testing.T) {
 	}
 }
 
-// TestParseAndNormalize_MalformedCanonicalization verifies that if the canonicalization
+// TestParseWellFormed tests the lightweight syntax-only ParseWellFormed function.
+func TestParseWellFormed(t *testing.T) {
+	tests := []struct {
+		name            string
+		tag             string
+		wantTag         string
+		wantErr         error
+		isGrandfathered bool
+	}{
+		{name: "Well formed lang tag", tag: "en-US", wantTag: "en-US"},
+		{name: "Well formed private use only", tag: "x-private", wantTag: "x-private"},
+		{name: "Syntax error", tag: "en_US", wantErr: ErrForbiddenChar},
+		{name: "Empty private use tag", tag: "en-x", wantErr: ErrEmptyPrivateUse},
+		{name: "Private use only trailing hyphen", tag: "x-a-", wantErr: ErrEmptySubtag},
+		{
+			name:            "Well-formed irregular grandfathered (i-default)",
+			tag:             "i-default",
+			wantTag:         "i-default",
+			isGrandfathered: true,
+		},
+		{
+			name:            "Well-formed irregular grandfathered (en-GB-oed)",
+			tag:             "en-GB-oed",
+			wantTag:         "en-GB-oed",
+			isGrandfathered: true,
+		},
+		{
+			name:            "Well-formed regular grandfathered (art-lojban)",
+			tag:             "art-lojban",
+			wantTag:         "art-lojban",
+			isGrandfathered: true,
+		},
+		{
+			name:    "Well-formed multiple extlangs (2 extlangs)",
+			tag:     "zh-cmn-yue",
+			wantTag: "zh-cmn-yue",
+		},
+		{
+			name:    "Well-formed multiple extlangs (3 extlangs)",
+			tag:     "zh-cmn-yue-abc",
+			wantTag: "zh-cmn-yue-abc",
+		},
+		{
+			name:    "Invalid multiple extlangs (4 extlangs)",
+			tag:     "zh-cmn-yue-abc-def",
+			wantErr: ErrTooManyExtlangs,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseWellFormed(tt.tag)
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("ParseWellFormed() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err == nil {
+				if got.String() != tt.wantTag {
+					t.Errorf("ParseWellFormed() got = %q, want %q", got.String(), tt.wantTag)
+				}
+				if got.IsGrandfathered() != tt.isGrandfathered {
+					t.Errorf(
+						"ParseWellFormed() IsGrandfathered() = %v, want %v",
+						got.IsGrandfathered(),
+						tt.isGrandfathered,
+					)
+				}
+			}
+		})
+	}
+}
+
+// TestParserSuppressScript tests suppressing redundant scripts from a parsed tag.
+func TestParserSuppressScript(t *testing.T) {
+	tests := []struct {
+		name    string
+		tag     string
+		wantTag string
+		wantErr bool
+	}{
+		{name: "Suppress redundant script", tag: "is-Latn", wantTag: "is"},
+		{name: "Suppress script for English", tag: "en-Latn-US", wantTag: "en-US"},
+		{name: "Keep non-redundant script", tag: "zh-Hant", wantTag: "zh-Hant"},
+		{name: "Keep non-redundant script with different suppress script", tag: "en-Cyrl-US", wantTag: "en-Cyrl-US"},
+		{name: "Grandfathered tag noop", tag: "i-enochian", wantTag: "i-enochian"},
+		{name: "No script present", tag: "de-DE", wantTag: "de-DE"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var lt LanguageTag
+			if strings.HasPrefix(tt.tag, "i-") {
+				lt = mustParse(t, tt.tag)
+			} else {
+				lt = mustParseAndNormalize(t, tt.tag)
+			}
+
+			got := p.SuppressScript(lt)
+			if got.String() != tt.wantTag {
+				t.Errorf("SuppressScript() got = %q, want %q", got.String(), tt.wantTag)
+			}
+		})
+	}
+}
+
+// TestParserSuppressScriptUnregistered tests suppressing redundant scripts
+// for an unregistered language tag.
+func TestParserSuppressScriptUnregistered(t *testing.T) {
+	lt := mustParse(t, "zz-Latn")
+	got := p.SuppressScript(lt)
+	if got.String() != "zz-Latn" {
+		t.Errorf("SuppressScript() got = %q, want %q", got.String(), "zz-Latn")
+	}
+}
+
+// TestParseAndNormalizeMalformedCanonicalization verifies that if the canonicalization
 // process itself produces a malformed tag, the second internal parse catches it.
-func TestParseAndNormalize_MalformedCanonicalization(t *testing.T) {
+func TestParseAndNormalizeMalformedCanonicalization(t *testing.T) {
 	malformedRegistry := `
 File-Date: 2024-01-01
 %%
@@ -222,13 +371,17 @@ Preferred-Value: en--US
 	_, err = malformedParser.ParseAndNormalize("bad")
 
 	if !errors.Is(err, ErrEmptySubtag) {
-		t.Errorf("ParseAndNormalize() with malformed canonical value returned error %v, want %v", err, ErrEmptySubtag)
+		t.Errorf(
+			"ParseAndNormalize() with malformed canonical value returned error %v, want %v",
+			err,
+			ErrEmptySubtag,
+		)
 	}
 }
 
-// TestParser_ToExtlangForm_CorruptRegistry tests that ToExtlangForm handles
+// TestParserToExtlangFormCorruptRegistry tests that ToExtlangForm handles
 // a malformed prefix from a corrupt registry.
-func TestParser_ToExtlangForm_CorruptRegistry(t *testing.T) {
+func TestParserToExtlangFormCorruptRegistry(t *testing.T) {
 	malformedRegistry := &Registry{
 		Records: map[string]Record{
 			"extlang:hak": {
@@ -259,7 +412,58 @@ func TestParser_ToExtlangForm_CorruptRegistry(t *testing.T) {
 	_, err = corruptParser.ToExtlangForm(lt)
 
 	if !errors.Is(err, ErrEmptySubtag) {
-		t.Errorf("ToExtlangForm with corrupt registry did not return the expected error.\nGot: %v\nWant: %v",
-			err, ErrEmptySubtag)
+		t.Errorf(
+			"ToExtlangForm with corrupt registry did not return the expected error.\nGot: %v\nWant: %v",
+			err,
+			ErrEmptySubtag,
+		)
+	}
+}
+
+// TestNewParser tests the NewParser constructor under normal execution.
+func TestNewParser(t *testing.T) {
+	parser, err := NewParser()
+	if err != nil {
+		t.Fatalf("NewParser() unexpected error: %v", err)
+	}
+	if parser == nil || parser.registry == nil {
+		t.Fatal("NewParser() returned nil parser or uninitialized registry")
+	}
+}
+
+// TestNewParserEmptyEmbeddedData tests that NewParser returns an error when the
+// embedded registry data is empty.
+func TestNewParserEmptyEmbeddedData(t *testing.T) {
+	orig := embeddedRegistryData
+	defer func() { embeddedRegistryData = orig }()
+
+	embeddedRegistryData = nil
+
+	parser, err := NewParser()
+	if err == nil {
+		t.Fatal("NewParser() expected error when embeddedRegistryData is empty, got nil")
+	}
+	if parser != nil {
+		t.Errorf("NewParser() expected nil parser, got %v", parser)
+	}
+	if !strings.Contains(err.Error(), "empty or not found") {
+		t.Errorf("NewParser() unexpected error message: %v", err)
+	}
+}
+
+// TestNewParserCorruptEmbeddedData tests that NewParser returns an error when the
+// embedded registry data fails to parse.
+func TestNewParserCorruptEmbeddedData(t *testing.T) {
+	orig := embeddedRegistryData
+	defer func() { embeddedRegistryData = orig }()
+
+	embeddedRegistryData = []byte("Type: language\nSubtag: a..zz\n")
+
+	parser, err := NewParser()
+	if err == nil {
+		t.Fatal("NewParser() expected error for corrupted registry data, got nil")
+	}
+	if parser != nil {
+		t.Errorf("NewParser() expected nil parser, got %v", parser)
 	}
 }

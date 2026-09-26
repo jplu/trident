@@ -24,21 +24,23 @@ import (
 	"golang.org/x/text/unicode/bidi"
 )
 
-// validateBidiComponent checks a component string against the structural rules
-// for bidirectional IRIs as defined in RFC 3987, Section 4.2.
+// validateBidiComponent checks a component string against the structural rules for bidirectional IRIs.
 //
-// Rule 1: A component SHOULD NOT use both right-to-left and left-to-right characters.
-// Rule 2: A component using right-to-left characters SHOULD start and end with
+// Specification Reference:
+// RFC 3987 (Section 4.2)
 //
-//	right-to-left characters.
+// Parameters:
+//   - component: The component string to be checked.
 //
-// This function will return an error if a component violates these "SHOULD" rules,
-// providing stricter validation.
+// Returns:
+//   - error: A BidiGuidelineError if the component violates the bidirectional constraint rules, or nil if valid.
 func validateBidiComponent(component string) error {
 	if component == "" {
 		return nil
 	}
 
+	// Step 1: Scan for character directionality classes
+	// We iterate over the runes to determine the presence of LTR and RTL characters.
 	runes := []rune(component)
 	var hasLTR, hasRTL bool
 
@@ -50,30 +52,55 @@ func validateBidiComponent(component string) error {
 			hasRTL = true
 		case bidi.L:
 			hasLTR = true
-		case bidi.EN, bidi.ES, bidi.ET, bidi.AN, bidi.CS, bidi.B, bidi.S, bidi.WS, bidi.ON, bidi.BN, bidi.NSM,
-			bidi.Control, bidi.LRO, bidi.RLO, bidi.LRE, bidi.RLE, bidi.PDF, bidi.LRI, bidi.RLI, bidi.FSI, bidi.PDI:
-			// These are neutral characters and do not affect LTR/RTL detection for the purpose of this validation.
+		case bidi.EN,
+			bidi.ES,
+			bidi.ET,
+			bidi.AN,
+			bidi.CS,
+			bidi.B,
+			bidi.S,
+			bidi.WS,
+			bidi.ON,
+			bidi.BN,
+			bidi.NSM,
+			bidi.Control,
+			bidi.LRO,
+			bidi.RLO,
+			bidi.LRE,
+			bidi.RLE,
+			bidi.PDF,
+			bidi.LRI,
+			bidi.RLI,
+			bidi.FSI,
+			bidi.PDI:
+			// Implementation Note: Skip neutral and formatting characters
+			// Neutral characters and bidirectional formatting characters are ignored during mixed-directionality
+			// analysis.
 		}
 	}
 
-	// Rule 1: Disallow mixing of LTR and RTL characters in the same component.
+	// Spec Rule: RFC 3987 (Section 4.2)
+	// Rule 1: A component SHOULD NOT use both right-to-left and left-to-right characters.
 	if hasLTR && hasRTL {
-		return &kindError{
-			message: "Invalid IRI component: mixed left-to-right and right-to-left characters",
-			details: component,
+		return &BidiGuidelineError{
+			Rule:      "Rule 1",
+			Component: component,
+			Message:   "mixed left-to-right and right-to-left characters",
 		}
 	}
 
-	// Rule 2 applies only if the component contains RTL characters.
+	// Spec Rule: RFC 3987 (Section 4.2)
+	// Rule 2: A component using right-to-left characters SHOULD start and end with right-to-left characters.
 	if hasRTL {
 		// Check the first character of the component.
 		propFirst, _ := bidi.LookupRune(runes[0])
 		classFirst := propFirst.Class()
 		isFirstRTL := classFirst == bidi.R || classFirst == bidi.AL
 		if !isFirstRTL {
-			return &kindError{
-				message: "Invalid IRI component: right-to-left parts must start and end with right-to-left characters",
-				details: component,
+			return &BidiGuidelineError{
+				Rule:      "Rule 2",
+				Component: component,
+				Message:   "right-to-left parts must start with right-to-left characters",
 			}
 		}
 
@@ -82,9 +109,10 @@ func validateBidiComponent(component string) error {
 		classLast := propLast.Class()
 		isLastRTL := classLast == bidi.R || classLast == bidi.AL
 		if !isLastRTL {
-			return &kindError{
-				message: "Invalid IRI component: right-to-left parts must start and end with right-to-left characters",
-				details: component,
+			return &BidiGuidelineError{
+				Rule:      "Rule 2",
+				Component: component,
+				Message:   "right-to-left parts must end with right-to-left characters",
 			}
 		}
 	}
@@ -92,24 +120,42 @@ func validateBidiComponent(component string) error {
 	return nil
 }
 
-// validateBidiHost checks a host string against the Bidi rules.
-// RFC 3987, Section 4.2 requires that for hostnames, each dot-separated
-// label be treated as an individual component for Bidi validation.
+// validateBidiHost checks a host string against the bidirectional constraints.
+//
+// Specification Reference:
+// RFC 3987 (Section 4.2)
+//
+// Parameters:
+//   - host: The host string to be checked.
+//
+// Returns:
+//   - error: A BidiGuidelineError if any label in the host violates the bidirectional rules, or nil if valid.
 func validateBidiHost(host string) error {
-	// For IP literals (e.g., [::1]), Bidi rules do not apply.
+	// Implementation Note: Exception for IP literal formatting
+	// For IP literals enclosed in brackets, bidirectional constraints do not apply.
 	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
 		return nil
 	}
-	labels := strings.Split(host, ".")
-	for _, label := range labels {
+
+	// Step 1: Split the host into individual labels
+	// Bidirectional rules mandate evaluating each dot-separated label independently.
+	labels := strings.SplitSeq(host, ".")
+
+	// Step 2: Validate each label against bidirectional constraints
+	// Spec Rule: RFC 3987 (Section 4.2)
+	// For hostnames, each dot-separated label is treated as an individual component for Bidi validation.
+	for label := range labels {
 		if err := validateBidiComponent(label); err != nil {
-			// Attach the full host context to the error for better diagnostics.
-			var e *kindError
-			if errors.As(err, &e) {
-				e.message = "Invalid IRI host label"
-				e.details = label + " in host '" + host + "'"
-				return e
-			}
+			// Implementation Note: Error context wrapping
+			// Extract and enrich the internal error to provide detailed host diagnostics.
+			bidiErr := func() *BidiGuidelineError {
+				target := &BidiGuidelineError{}
+				_ = errors.As(err, &target)
+				return target
+			}()
+			bidiErr.Message = "Invalid IRI host label: " + bidiErr.Message
+			bidiErr.Component = label + " in host '" + host + "'"
+			return bidiErr
 		}
 	}
 	return nil

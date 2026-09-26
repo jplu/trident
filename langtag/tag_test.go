@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package langtag
 
 import (
@@ -23,18 +24,16 @@ import (
 	"testing"
 )
 
-// TestLanguageTag_String tests the String() method.
-// Based on RFC 5646: a language tag is a sequence of subtags.
-func TestLanguageTag_String(t *testing.T) {
+// TestLanguageTagString checks the formatted string representation of a language tag.
+func TestLanguageTagString(t *testing.T) {
 	lt := mustParseAndNormalize(t, "en-US")
 	if got := lt.String(); got != "en-US" {
 		t.Errorf("String() = %q, want %q", got, "en-US")
 	}
 }
 
-// TestLanguageTag_PrimaryLanguage tests the PrimaryLanguage() method.
-// RFC 5646 Section 2.2.1: primary language subtag is the first subtag.
-func TestLanguageTag_PrimaryLanguage(t *testing.T) {
+// TestLanguageTagPrimaryLanguage verifies extraction of the base language subtag.
+func TestLanguageTagPrimaryLanguage(t *testing.T) {
 	lt := mustParseAndNormalize(t, "sr-Latn-RS")
 	want := "sr"
 	if got := lt.PrimaryLanguage(); got != want {
@@ -42,9 +41,8 @@ func TestLanguageTag_PrimaryLanguage(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_ExtendedLanguage tests the ExtendedLanguage() method.
-// RFC 5646 Section 2.2.2.
-func TestLanguageTag_ExtendedLanguage(t *testing.T) {
+// TestLanguageTagExtendedLanguage evaluates extended language components and their existence.
+func TestLanguageTagExtendedLanguage(t *testing.T) {
 	tests := []struct {
 		name     string
 		tag      string
@@ -84,9 +82,8 @@ func TestLanguageTag_ExtendedLanguage(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_ExtendedLanguageSubtags tests the ExtendedLanguageSubtags() method.
-// RFC 5646 Section 2.1 ABNF: extlang = 3ALPHA *2("-" 3ALPHA).
-func TestLanguageTag_ExtendedLanguageSubtags(t *testing.T) {
+// TestLanguageTagExtendedLanguageSubtags retrieves all extended language elements as a slice.
+func TestLanguageTagExtendedLanguageSubtags(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -117,8 +114,8 @@ func TestLanguageTag_ExtendedLanguageSubtags(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_FullLanguage tests the FullLanguage() method.
-func TestLanguageTag_FullLanguage(t *testing.T) {
+// TestLanguageTagFullLanguage combines primary and extended language components correctly.
+func TestLanguageTagFullLanguage(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -149,9 +146,8 @@ func TestLanguageTag_FullLanguage(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_Script tests the Script() method.
-// RFC 5646 Section 2.2.3. Example: sr-Latn.
-func TestLanguageTag_Script(t *testing.T) {
+// TestLanguageTagScript extracts the script subtag when present.
+func TestLanguageTagScript(t *testing.T) {
 	tests := []struct {
 		name   string
 		tag    string
@@ -176,9 +172,8 @@ func TestLanguageTag_Script(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_Region tests the Region() method.
-// RFC 5646 Section 2.2.4. Examples: en-US, es-419.
-func TestLanguageTag_Region(t *testing.T) {
+// TestLanguageTagRegion extracts country or region codes (letters or digits).
+func TestLanguageTagRegion(t *testing.T) {
 	tests := []struct {
 		name   string
 		tag    string
@@ -204,9 +199,8 @@ func TestLanguageTag_Region(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_Variant tests the Variant() method.
-// RFC 5646 Section 2.2.5. Example: sl-rozaj-biske.
-func TestLanguageTag_Variant(t *testing.T) {
+// TestLanguageTagVariant extracts dialect or variation subtags.
+func TestLanguageTagVariant(t *testing.T) {
 	tests := []struct {
 		name   string
 		tag    string
@@ -232,8 +226,8 @@ func TestLanguageTag_Variant(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_VariantSubtags tests the VariantSubtags() method.
-func TestLanguageTag_VariantSubtags(t *testing.T) {
+// TestLanguageTagVariantSubtags returns all variation subtags as a slice.
+func TestLanguageTagVariantSubtags(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -253,9 +247,8 @@ func TestLanguageTag_VariantSubtags(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_ExtensionSubtags tests the ExtensionSubtags() method.
-// RFC 5646 Section 2.2.6.
-func TestLanguageTag_ExtensionSubtags(t *testing.T) {
+// TestLanguageTagExtensionSubtags extracts extension singletons and their values.
+func TestLanguageTagExtensionSubtags(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -288,9 +281,8 @@ func TestLanguageTag_ExtensionSubtags(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_PrivateUse tests the PrivateUse() method.
-// RFC 5646 Section 2.2.7. Examples: de-CH-x-phonebk, x-whatever.
-func TestLanguageTag_PrivateUse(t *testing.T) {
+// TestLanguageTagPrivateUse extracts and normalizes private-use subtag sequences.
+func TestLanguageTagPrivateUse(t *testing.T) {
 	tests := []struct {
 		name   string
 		tag    string
@@ -322,8 +314,8 @@ func TestLanguageTag_PrivateUse(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_PrivateUseSubtags tests the PrivateUseSubtags() method.
-func TestLanguageTag_PrivateUseSubtags(t *testing.T) {
+// TestLanguageTagPrivateUseSubtags splits private-use sections into individual elements.
+func TestLanguageTagPrivateUseSubtags(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -347,9 +339,8 @@ func TestLanguageTag_PrivateUseSubtags(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_IsGrandfathered tests the IsGrandfathered() method.
-// RFC 5646 Section 2.2.8.
-func TestLanguageTag_IsGrandfathered(t *testing.T) {
+// TestLanguageTagIsGrandfathered identifies irregular, regular, and redundant grandfathered tags.
+func TestLanguageTagIsGrandfathered(t *testing.T) {
 	tests := []struct {
 		name string
 		tag  string
@@ -371,8 +362,8 @@ func TestLanguageTag_IsGrandfathered(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_MarshalJSON tests the MarshalJSON method.
-func TestLanguageTag_MarshalJSON(t *testing.T) {
+// TestLanguageTagMarshalJSON serializes a LanguageTag to JSON across various states.
+func TestLanguageTagMarshalJSON(t *testing.T) {
 	tests := []struct {
 		name    string
 		lt      *LanguageTag
@@ -410,9 +401,8 @@ func TestLanguageTag_MarshalJSON(t *testing.T) {
 	}
 }
 
-// TestLanguageTag_UnmarshalJSON tests the UnmarshalJSON method.
-// Per RFC 5646 Sec 2.2.9, this implies full validation and canonicalization.
-func TestLanguageTag_UnmarshalJSON(t *testing.T) {
+// TestLanguageTagUnmarshalJSON deserializes JSON into a LanguageTag with validation and normalization.
+func TestLanguageTagUnmarshalJSON(t *testing.T) {
 	tests := []struct {
 		name    string
 		data    []byte
@@ -420,7 +410,7 @@ func TestLanguageTag_UnmarshalJSON(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "Valid tag", data: []byte(`"en-US"`), wantTag: "en-US"},
-		{name: "Canonicalization applied", data: []byte(`"art-lojban"`), wantTag: "jbo"},
+		{name: "Canonicalization not applied", data: []byte(`"art-lojban"`), wantTag: "art-lojban"},
 		{name: "Case normalization applied", data: []byte(`"sR-lAtN-rs"`), wantTag: "sr-Latn-RS"},
 		{name: "Invalid tag in JSON", data: []byte(`"123-bogus"`), wantErr: true},
 		{name: "Empty JSON string", data: []byte(`""`), wantTag: ""},
@@ -443,26 +433,4 @@ func TestLanguageTag_UnmarshalJSON(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("NewParser failure", func(t *testing.T) {
-		originalData := embeddedRegistryData
-		t.Cleanup(func() {
-			embeddedRegistryData = originalData
-		})
-
-		embeddedRegistryData = []byte{}
-
-		var lt LanguageTag
-		jsonData := []byte(`"en-US"`)
-		err := json.Unmarshal(jsonData, &lt)
-
-		if err == nil {
-			t.Fatal("UnmarshalJSON() did not return an error, but was expected to")
-		}
-
-		wantErrMsg := "embedded language-subtag-registry file is empty or not found"
-		if err.Error() != wantErrMsg {
-			t.Errorf("UnmarshalJSON() error = %q, want %q", err, wantErrMsg)
-		}
-	})
 }

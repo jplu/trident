@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package langtag
 
 import (
@@ -22,9 +23,9 @@ import (
 	"testing"
 )
 
-// TestNewParser_Success verifies that NewParser successfully creates a parser instance
+// TestNewParserSuccess verifies that NewParser successfully creates a parser instance
 // from the valid, embedded IANA registry.
-func TestNewParser_Success(t *testing.T) {
+func TestNewParserSuccess(t *testing.T) {
 	parser, err := NewParser()
 
 	if err != nil {
@@ -39,7 +40,10 @@ func TestNewParser_Success(t *testing.T) {
 
 	expectedKey := "language:en"
 	if _, ok := parser.registry.Records[expectedKey]; !ok {
-		t.Errorf("registry missing fundamental record for subtag 'en' (expected key: %q)", expectedKey)
+		t.Errorf(
+			"registry missing fundamental record for subtag 'en' (expected key: %q)",
+			expectedKey,
+		)
 	}
 
 	if parser.registry.FileDate == "" {
@@ -47,9 +51,9 @@ func TestNewParser_Success(t *testing.T) {
 	}
 }
 
-// TestNewParser_EmptyRegistry ensures that NewParser returns an error when the
+// TestNewParserEmptyRegistry ensures that NewParser returns an error when the
 // embedded registry data is empty.
-func TestNewParser_EmptyRegistry(t *testing.T) {
+func TestNewParserEmptyRegistry(t *testing.T) {
 	originalData := embeddedRegistryData
 	embeddedRegistryData = []byte{}
 	defer func() {
@@ -70,11 +74,13 @@ func TestNewParser_EmptyRegistry(t *testing.T) {
 	}
 }
 
-// TestNewParser_CorruptedRegistry verifies that NewParser fails when the embedded
+// TestNewParserCorruptedRegistry verifies that NewParser fails when the embedded
 // registry data is malformed.
-func TestNewParser_CorruptedRegistry(t *testing.T) {
+func TestNewParserCorruptedRegistry(t *testing.T) {
 	originalData := embeddedRegistryData
-	corruptedData := []byte("File-Date: 2024-07-25\n%%\nType: region\nSubtag: 123..abc\nDescription: Corrupted")
+	corruptedData := []byte(
+		"File-Date: 2024-07-25\n%%\nType: region\nSubtag: 123..abc\nDescription: Corrupted",
+	)
 	embeddedRegistryData = corruptedData
 	defer func() {
 		embeddedRegistryData = originalData
@@ -89,6 +95,8 @@ func TestNewParser_CorruptedRegistry(t *testing.T) {
 	}
 
 	if err.Error() == "" {
-		t.Error("expected a descriptive error message for corrupted data, but got an empty error string")
+		t.Error(
+			"expected a descriptive error message for corrupted data, but got an empty error string",
+		)
 	}
 }

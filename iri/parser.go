@@ -26,24 +26,18 @@ const (
 	authorityPrefixLength = 2
 )
 
-// errNoScheme is returned when an absolute IRI is expected but no scheme
-// (e.g., "http:") is found. This typically occurs when the IRI string
-// starts with a colon, which is invalid.
+// errNoScheme is returned when an absolute IRI is expected but no scheme is found.
+// This typically occurs when the IRI string starts with a colon, which is invalid.
 var errNoScheme = &kindError{message: "No scheme found in an absolute IRI"}
 
-// Positions holds the end byte-offsets of each component within a parsed IRI string.
-// All values are exclusive upper bounds, measured in bytes from the start of the
-// output string produced by the parser.
+// Positions represents the parsed component offsets as defined in the governing specification.
 //
-// The components are laid out as follows for "http://user@host:80/path?query#frag":
+// Specification Reference:
+// RFC 3986 (Section 3)
 //
-//	SchemeEnd    — byte index immediately after the scheme colon, e.g. 5 for "http:"
-//	AuthorityEnd — byte index immediately after the authority, e.g. 21 for "//user@host:80"
-//	PathEnd      — byte index immediately after the path, e.g. 26 for "/path"
-//	QueryEnd     — byte index immediately after the query, e.g. 32 for "query"
-//
-// When a component is absent its end equals the previous component's end.
-// For example, if there is no authority, AuthorityEnd == SchemeEnd.
+// Representation:
+// A struct holding the exclusive byte boundary markers for scheme, authority, path, and query components within the
+// generated output buffer.
 type Positions struct {
 	// SchemeEnd is the byte offset just past the trailing colon of the scheme
 	// (e.g., 5 for "http:"). Zero means no scheme is present.
@@ -61,14 +55,26 @@ type Positions struct {
 	QueryEnd int
 }
 
-// base represents a pre-parsed, absolute IRI that can be used as a base for
-// resolving relative references.
+// base represents the parsed base IRI as defined in the governing specification.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.1) and RFC 3987 (Section 6.5)
+//
+// Representation:
+// A data record associating a reference string with its parsed component positions to facilitate standard resolution.
 type base struct {
 	IRI string
 	Pos Positions
 }
 
-// iriParserBase holds the component data of a base IRI used for resolution.
+// iriParserBase represents the base components of an IRI used for reference resolution as defined in the governing
+// specification.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2.1)
+//
+// Representation:
+// A context structure holding cached index boundaries of the base IRI scheme, authority, path, and query components.
 type iriParserBase struct {
 	iri          string
 	schemeEnd    int
@@ -78,7 +84,15 @@ type iriParserBase struct {
 	hasBase      bool
 }
 
-// iriParser holds the state for a single parsing operation.
+// iriParser represents the parsing state and buffer configuration of the parser as defined in the governing
+// specification.
+//
+// Specification Reference:
+// RFC 3987 (Section 2)
+//
+// Representation:
+// A stateful scanner wrapping input source, optional resolution context, output destination, and parsed position
+// metadata.
 type iriParser struct {
 	iri             string
 	base            *iriParserBase
@@ -89,9 +103,23 @@ type iriParser struct {
 	unchecked       bool
 }
 
-// run is the main entry point for the IRI parser. It parses, validates, and
-// resolves an IRI reference against an optional base IRI.
+// run parses, validates, and resolves an input IRI reference against an optional base IRI.
+//
+// Specification Reference:
+// RFC 3987 (Section 2.2) and RFC 3986 (Section 5.2.2).
+//
+// Parameters:
+//   - iri: The raw IRI string to parse.
+//   - baseIRI: An optional pointer to the pre-parsed base IRI component.
+//   - unchecked: A boolean flag indicating whether syntax and bidirectional validation should be skipped.
+//   - output: The output buffer implementation where the resolved string is written.
+//
+// Returns:
+//   - Positions: The byte-offset positions of each component in the parsed output.
+//   - error: An error under parsing or validation failures.
 func run(iri string, baseIRI *base, unchecked bool, output outputBuffer) (Positions, error) {
+	// Step 1: Initialize Base IRI Components
+	// Set up components from the base IRI if provided, which is necessary for relative resolution.
 	var b *iriParserBase
 	if baseIRI != nil {
 		b = &iriParserBase{
@@ -106,6 +134,8 @@ func run(iri string, baseIRI *base, unchecked bool, output outputBuffer) (Positi
 		b = &iriParserBase{hasBase: false}
 	}
 
+	// Step 2: Initialize Parser State
+	// Construct the iriParser instance with the input reader, output buffer, and configuration options.
 	p := &iriParser{
 		iri:       iri,
 		base:      b,
@@ -114,14 +144,23 @@ func run(iri string, baseIRI *base, unchecked bool, output outputBuffer) (Positi
 		unchecked: unchecked,
 	}
 
+	// Step 3: Begin Parsing Scheme or Relative Parts
+	// Delegate execution to the scheme detection entry point.
 	err := p.parseSchemeStart()
 	return p.outputPositions, err
 }
 
-// parseSchemeStart is the initial state of the parser.
+// parseSchemeStart determines the entry state of the parser by checking for a scheme or relative prefix.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.1) and RFC 3986 (Section 4.2).
+//
+// Returns:
+//   - error: An error if the parsing or subsequent processing fails.
 func (p *iriParser) parseSchemeStart() error {
 	if !p.base.hasBase && strings.HasPrefix(p.iri, "//") {
-		// This is a network-path reference like "//example.com/path"
+		// Spec Rule: RFC 3986 (Section 4.2)
+		// A relative reference that begins with two slash characters is a network-path reference.
 		_, _ = p.input.reader.Seek(authorityPrefixLength, io.SeekStart)
 		p.output.writeString("//")
 		p.outputPositions.SchemeEnd = 0
@@ -134,27 +173,45 @@ func (p *iriParser) parseSchemeStart() error {
 
 	r, ok := p.input.peek()
 	if !ok {
-		// Empty input, treat as relative reference.
+		// Spec Rule: RFC 3986 (Section 4.2)
+		// An empty relative reference is valid and resolves to the base path.
 		return p.parseRelative()
 	}
 	if r == ':' {
+		// Spec Rule: RFC 3986 (Section 3.1)
+		// A scheme must begin with a letter. A colon at the start is invalid.
 		return errNoScheme
 	}
 	if isASCIILetter(r) {
+		// Spec Rule: RFC 3986 (Section 3.1)
+		// A scheme name begins with an ASCII letter. Even if a reference starts
+		// with a scheme, if we are resolving against a base, it must be resolved
+		// via resolveComponents to properly normalize dot segments.
+		if p.base.hasBase {
+			return p.parseRelative()
+		}
 		return p.parseScheme()
 	}
-	// No scheme found, treat as a relative reference.
+	// Spec Rule: RFC 3986 (Section 4.2)
+	// If the string does not start with a scheme-valid prefix, it is parsed as relative.
 	return p.parseRelative()
 }
 
 // parseScheme consumes the scheme component.
+//
+// Specification Reference:
+// RFC 3986 (Section 3.1).
+//
+// Returns:
+//   - error: An error if parsing or subsequent component validation fails.
 func (p *iriParser) parseScheme() error {
 	initialInput := p.iri
 	initialPos := p.input.position()
 	for {
 		r, ok := p.input.next()
 		if !ok {
-			// Reached end of string without finding ':', so it's a relative path.
+			// Implementation Note: Backtracking logic.
+			// Reached end of string without finding ':', so we treat the prefix as a relative path.
 			p.input.reset(initialInput[initialPos:])
 			p.output.reset()
 			return p.parseRelative()
@@ -162,8 +219,13 @@ func (p *iriParser) parseScheme() error {
 
 		switch {
 		case isASCIILetter(r) || isASCIIDigit(r) || r == '+' || r == '-' || r == '.':
+			// Spec Rule: RFC 3986 (Section 3.1)
+			// Scheme names consist of a sequence of characters beginning with a letter and
+			// followed by letters, digits, plus, period, or hyphen.
 			p.output.writeRune(r)
 		case r == ':':
+			// Spec Rule: RFC 3986 (Section 3.1)
+			// The colon character marks the end of the scheme component.
 			p.output.writeRune(':')
 			p.outputPositions.SchemeEnd = p.output.len()
 			p.inputSchemeEnd = p.input.position()
@@ -172,11 +234,13 @@ func (p *iriParser) parseScheme() error {
 				p.output.writeRune('/')
 				return p.parsePathOrAuthority()
 			}
-			// No authority, path starts immediately.
+			// Spec Rule: RFC 3986 (Section 3)
+			// No authority exists, so path starts immediately.
 			p.outputPositions.AuthorityEnd = p.outputPositions.SchemeEnd
 			return p.parsePath()
 		default:
-			// Invalid character for a scheme, so it must be a relative path.
+			// Implementation Note: Backtracking logic.
+			// Invalid character for a scheme, reset the parser to treat as a relative reference.
 			p.input.reset(initialInput[initialPos:])
 			p.output.reset()
 			return p.parseRelative()
@@ -185,20 +249,40 @@ func (p *iriParser) parseScheme() error {
 }
 
 // parseRelativeNoBase handles parsing a relative reference when no base IRI is provided.
-// In this case, it's parsed as a relative-path reference.
+//
+// Specification Reference:
+// RFC 3986 (Section 4.2).
+//
+// Returns:
+//   - error: An error if parsing the relative path fails.
 func (p *iriParser) parseRelativeNoBase() error {
 	p.outputPositions.SchemeEnd = 0
 	p.inputSchemeEnd = 0
 	if p.input.startsWith('/') {
+		// Spec Rule: RFC 3986 (Section 4.2)
+		// A relative reference that begins with a single slash is an absolute-path reference.
 		p.input.next()
 		p.output.writeRune('/')
 		return p.parsePath()
 	}
+	// Spec Rule: RFC 3986 (Section 4.2)
+	// A relative reference that does not begin with a slash is a relative-path reference.
 	return p.parsePathNoScheme()
 }
 
 // validateRelativeRef runs a sub-parse on the relative reference string to ensure it's well-formed.
+//
+// Specification Reference:
+// RFC 3986 (Section 4.2).
+//
+// Parameters:
+//   - relativeRef: The relative reference string to validate.
+//
+// Returns:
+//   - error: An error if the relative reference is invalid or contains ambiguous colons in the first segment.
 func (p *iriParser) validateRelativeRef(relativeRef string) error {
+	// Step 1: Sub-parse Initialization
+	// Create a temporary parser with a void output buffer to validate the structure.
 	validationParser := &iriParser{
 		iri:       relativeRef,
 		base:      &iriParserBase{hasBase: false},
@@ -210,20 +294,12 @@ func (p *iriParser) validateRelativeRef(relativeRef string) error {
 		return err
 	}
 
-	// According to RFC 3986 Section 4.2, a relative-path reference cannot
-	// contain a colon in its first segment, as it would be mistaken for a scheme.
-	// The generic parser will correctly parse such a string (e.g., "a:b") as an
-	// absolute URI with scheme "a".
-	// Since this validation function is specifically for references to be resolved
-	// against a base, we must reject this ambiguous form.
+	// Spec Rule: RFC 3986 (Section 4.2)
+	// A path segment that contains a colon character cannot be used as the first segment
+	// of a relative-path reference, as it would be mistaken for a scheme name.
 	if validationParser.outputPositions.SchemeEnd > 0 {
-		// It was parsed as an absolute URI. Check if it's the ambiguous form.
-		// The ambiguous form is `scheme:path-rootless`.
-		// It's unambiguous if it has an authority (`scheme://...`) or absolute path (`scheme:/...`).
 		uriAfterScheme := relativeRef[validationParser.inputSchemeEnd:]
 		if !strings.HasPrefix(uriAfterScheme, "/") {
-			// This is the ambiguous case (e.g., "a:b"). Per RFC 3986, this form
-			// is invalid as a relative-path reference.
 			return &kindError{message: "Invalid IRI character in first path segment", char: ':'}
 		}
 	}
@@ -231,19 +307,36 @@ func (p *iriParser) validateRelativeRef(relativeRef string) error {
 	return nil
 }
 
-// parseRelative handles a relative IRI reference. If a base IRI is present,
-// it resolves the reference against the base. Otherwise, it parses it as a
-// relative-path reference.
+// parseRelative handles a relative IRI reference.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2) and RFC 3987 (Section 6.5).
+//
+// Returns:
+//   - error: An error if validation or component resolution fails.
 func (p *iriParser) parseRelative() error {
 	if !p.base.hasBase {
+		// Step 1: Parse without a base.
+		// Fall back to simple relative-path reference parsing when no base is available.
 		return p.parseRelativeNoBase()
 	}
 
+	// Step 2: Validate the relative reference.
+	// Ensure that the reference is valid and does not violate first-segment ambiguity constraints.
 	relativeRef := p.input.asStr()
-	if err := p.validateRelativeRef(relativeRef); err != nil {
-		return err
+
+	// Spec Rule: RFC 3986 (Section 4.2)
+	// If the reference is absolute (i.e., contains a valid scheme), it is not a relative-path reference
+	// and does not need first-segment colon validation.
+	_, _, isAbsolute := extractRefScheme(relativeRef)
+	if !isAbsolute {
+		if err := p.validateRelativeRef(relativeRef); err != nil {
+			return err
+		}
 	}
 
+	// Step 3: Resolve components.
+	// Apply the reference resolution algorithm against the established base IRI.
 	t := p.resolveComponents(relativeRef)
 	p.recomposeIRI(t)
 	return nil

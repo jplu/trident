@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import "testing"
@@ -52,10 +53,18 @@ func TestNewParserInput(t *testing.T) {
 			t.Parallel()
 			p := newParserInput(tt.input)
 			if (p.reader == nil) != !tt.expectReader {
-				t.Errorf("newParserInput().reader is nil = %v, want %v", p.reader == nil, tt.expectReader)
+				t.Errorf(
+					"newParserInput().reader is nil = %v, want %v",
+					p.reader == nil,
+					tt.expectReader,
+				)
 			}
 			if p.originalString != tt.expectedStr {
-				t.Errorf("newParserInput().originalString = %q, want %q", p.originalString, tt.expectedStr)
+				t.Errorf(
+					"newParserInput().originalString = %q, want %q",
+					p.originalString,
+					tt.expectedStr,
+				)
 			}
 			if pos := p.position(); pos != tt.expectedPos {
 				t.Errorf("newParserInput().position() = %d, want %d", pos, tt.expectedPos)
@@ -64,8 +73,8 @@ func TestNewParserInput(t *testing.T) {
 	}
 }
 
-// TestParserInput_Next tests the rune-by-rune consumption of the input string.
-func TestParserInput_Next(t *testing.T) {
+// TestParserInputNext tests the rune-by-rune consumption of the input string.
+func TestParserInputNext(t *testing.T) {
 	t.Parallel()
 	rfc3987Example := "résumé"
 	expectedRunes := []rune(rfc3987Example)
@@ -104,8 +113,8 @@ func TestParserInput_Next(t *testing.T) {
 	}
 }
 
-// TestParserInput_Peek verifies reading the next rune without advancing the cursor.
-func TestParserInput_Peek(t *testing.T) {
+// TestParserInputPeek verifies reading the next rune without advancing the cursor.
+func TestParserInputPeek(t *testing.T) {
 	t.Parallel()
 	inputStr := "http:"
 	p := newParserInput(inputStr)
@@ -141,8 +150,8 @@ func TestParserInput_Peek(t *testing.T) {
 	}
 }
 
-// TestParserInput_StartsWith checks if the remaining input begins with a specific rune.
-func TestParserInput_StartsWith(t *testing.T) {
+// TestParserInputStartsWith checks if the remaining input begins with a specific rune.
+func TestParserInputStartsWith(t *testing.T) {
 	t.Parallel()
 	inputStr := "//example.com/path?query#fragment"
 	p := newParserInput(inputStr)
@@ -167,8 +176,8 @@ func TestParserInput_StartsWith(t *testing.T) {
 	}
 }
 
-// TestParserInput_Position validates the byte position tracking within the input.
-func TestParserInput_Position(t *testing.T) {
+// TestParserInputPosition validates the byte position tracking within the input.
+func TestParserInputPosition(t *testing.T) {
 	t.Parallel()
 	inputStr := "fóo"
 	p := newParserInput(inputStr)
@@ -194,8 +203,8 @@ func TestParserInput_Position(t *testing.T) {
 	}
 }
 
-// TestParserInput_AsStr ensures the unread portion of the string is returned correctly.
-func TestParserInput_AsStr(t *testing.T) {
+// TestParserInputAsStr ensures the unread portion of the string is returned correctly.
+func TestParserInputAsStr(t *testing.T) {
 	t.Parallel()
 	inputStr := "//a/b/c"
 	p := newParserInput(inputStr)
@@ -221,8 +230,8 @@ func TestParserInput_AsStr(t *testing.T) {
 	}
 }
 
-// TestParserInput_Reset verifies that the input can be re-initialized with a new string.
-func TestParserInput_Reset(t *testing.T) {
+// TestParserInputReset verifies that the input can be re-initialized with a new string.
+func TestParserInputReset(t *testing.T) {
 	t.Parallel()
 	initialRef := "g:h"
 	newRef := "./g"
@@ -260,8 +269,8 @@ func TestParserInput_Reset(t *testing.T) {
 	}
 }
 
-// TestParserInput_CombinedOperations performs a sequence of operations to ensure they interact correctly.
-func TestParserInput_CombinedOperations(t *testing.T) {
+// TestParserInputCombinedOperations performs a sequence of operations to ensure they interact correctly.
+func TestParserInputCombinedOperations(t *testing.T) {
 	t.Parallel()
 	inputStr := "foo://example.com:8042/over/there?name=ferret#nose"
 	p := newParserInput(inputStr)
@@ -294,5 +303,41 @@ func TestParserInput_CombinedOperations(t *testing.T) {
 	}
 	if pos := p.position(); pos != 0 {
 		t.Errorf("Position after reset = %d, want 0", pos)
+	}
+}
+
+// TestParserInputHasHexDigits checks if the upcoming input represents a valid hexadecimal escape pair.
+func TestParserInputHasHexDigits(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		input    string
+		expected bool
+	}{
+		{name: "Valid hex sequence", input: "%20", expected: true},
+		{name: "Invalid hex sequence (second char non-hex)", input: "%2g", expected: false},
+		{name: "Invalid hex sequence (first char non-hex)", input: "%g0", expected: false},
+		{name: "Incomplete hex sequence (one char)", input: "%2", expected: false},
+		{name: "Incomplete hex sequence (zero char)", input: "%", expected: false},
+		{name: "No sequence", input: "", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var input string
+			if tt.input != "" {
+				input = tt.input
+			} else {
+				input = "foo"
+			}
+			p := newParserInput(input)
+			if tt.input != "" {
+				p.next()
+			}
+			if got := p.hasHexDigits(); got != tt.expected {
+				t.Errorf("hasHexDigits() on %q = %v, want %v", tt.input, got, tt.expected)
+			}
+		})
 	}
 }

@@ -27,11 +27,13 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Normalize applies syntax-based normalization to the IRI reference according
-// to RFC 3986, Section 6.2.2. This includes case-normalization of the scheme
-// and host, percent-encoding normalization, and path-segment normalization.
-// It also ensures the resulting IRI is in Unicode Normalization Form C (NFC).
-// It returns a new, normalized Ref.
+// Normalize applies syntax-based normalization and Unicode Form C normalization to the IRI reference.
+//
+// Specification Reference:
+// RFC 3987 (Section 5.3.2) and RFC 3986 (Section 6.2.2)
+//
+// Returns:
+//   - *Ref: The normalized IRI reference pointer, or the original Ref pointer if no modifications were needed.
 func (r *Ref) Normalize() *Ref {
 	if r.iri == "" {
 		return &Ref{}
@@ -43,32 +45,37 @@ func (r *Ref) Normalize() *Ref {
 	query, hasQuery := r.Query()
 	fragment, hasFragment := r.Fragment()
 
-	// 1. Case Normalization
+	// Step 1: Case Normalization
+	// Convert the scheme component to lowercase if present and delegate host normalization.
 	if hasScheme {
 		scheme = strings.ToLower(scheme)
 	}
 	var userinfo, host, port string
 	if hasAuthority {
-		userinfo, host, port = splitAuthority(authority)
+		userinfo, host, port, _ = splitAuthority(authority)
 		host, port = normalizeHostAndPort(host, port, scheme)
 	}
 
-	// 2. Percent-Encoding Normalization
+	// Step 2: Percent-Encoding Normalization
+	// Decode any percent-encoded octet sequences that represent unreserved characters.
 	userinfo = normalizePercentEncoding(userinfo)
 	host = normalizePercentEncoding(host)
 	path = normalizePercentEncoding(path)
 	query = normalizePercentEncoding(query)
 	fragment = normalizePercentEncoding(fragment)
 
-	// 3. Path Segment Normalization
+	// Step 3: Path Segment Normalization
+	// Remove dot-segments from the path component.
 	path = removeDotSegments(path)
 
-	// 4. Scheme-based normalization for path
+	// Step 4: Scheme-Based Path Normalization
+	// Normalize empty paths to a single slash when an authority component is present.
 	if hasAuthority && path == "" {
 		path = "/"
 	}
 
-	// Recompose and re-parse
+	// Step 5: Recompose and Re-parse Components
+	// Recompose the normalized components into an IRI string and apply Unicode Normalization Form C (NFC).
 	recomposedStr := recomposeNormalizedIRI(
 		scheme, hasScheme,
 		userinfo, host, port, hasAuthority,
@@ -82,13 +89,33 @@ func (r *Ref) Normalize() *Ref {
 	if normalizedStr == r.iri {
 		return r
 	}
-	// An error is not expected here as we are building from valid components.
-	// We use the compliant ParseRef because normalizedStr is now guaranteed to be NFC.
+	// Implementation Note: Safe Re-parsing of Normalized String
+	// An error is not expected here as we are building from valid components. We use ParseRef since normalizedStr is
+	// guaranteed to be in NFC.
 	newRef, _ := ParseRef(normalizedStr)
 	return newRef
 }
 
-// recomposeNormalizedIRI builds an IRI string from its normalized components.
+// recomposeNormalizedIRI recomposes a normalized IRI string from its individual components.
+//
+// Specification Reference:
+// RFC 3987 (Section 3.1) and RFC 3986 (Section 5.3)
+//
+// Parameters:
+//   - scheme: The scheme component string.
+//   - hasScheme: A boolean indicating whether the scheme is present.
+//   - userinfo: The userinfo subcomponent string.
+//   - host: The host subcomponent string.
+//   - port: The port subcomponent string.
+//   - hasAuthority: A boolean indicating whether the authority component is present.
+//   - path: The path component string.
+//   - query: The query component string.
+//   - hasQuery: A boolean indicating whether the query component is present.
+//   - fragment: The fragment component string.
+//   - hasFragment: A boolean indicating whether the fragment component is present.
+//
+// Returns:
+//   - string: The recomposed IRI string.
 func recomposeNormalizedIRI(
 	scheme string, hasScheme bool,
 	userinfo, host, port string, hasAuthority bool,
@@ -125,31 +152,46 @@ func recomposeNormalizedIRI(
 	return b.String()
 }
 
-// normalizeHostAndPort applies case, IDNA, and scheme-based port normalization.
+// normalizeHostAndPort normalizes the host and port components by applying case, IDNA, and scheme-based port
+// normalization.
+//
+// Specification Reference:
+// RFC 3987 (Section 5.3.2.1), RFC 3490 (Section 4), and RFC 3986 (Section 6.2.3)
+//
+// Parameters:
+//   - host: The host component string to be normalized.
+//   - port: The port component string to be normalized.
+//   - scheme: The scheme component string used to determine default ports.
+//
+// Returns:
+//   - string: The normalized host string.
+//   - string: The normalized port string, or empty if it matches the scheme's default port.
 func normalizeHostAndPort(host, port, scheme string) (string, string) {
-	// Case normalization for host.
+	// Step 1: Case Normalization
+	// Convert the host component to lowercase since host names are case-insensitive.
 	normalizedHost := strings.ToLower(host)
 
-	// IDNA normalization.
+	// Step 2: IDNA Normalization
+	// Apply IDNA ToASCII and ToUnicode mappings on the host labels.
 	if !strings.HasPrefix(normalizedHost, "[") {
 		unicodeHost := normalizedHost
-		// First, get the canonical Unicode form using the library. This
-		// handles both direct Unicode and Punycode input.
+		// Implementation Note: Canonical Unicode Form Conversion
+		// Retrieve the canonical Unicode form by performing ToASCII followed by ToUnicode. This handles both native
+		// Unicode and Punycode representations.
 		if asciiHost, err := idna.ToASCII(normalizedHost); err == nil {
 			if uh, errUnicode := idna.ToUnicode(asciiHost); errUnicode == nil {
 				unicodeHost = uh
 			}
 		}
 
-		// Apply specific mappings from Nameprep (RFC 3491, Table B.2)
-		// that are part of IDNA2003 but not IDNA2008 (as implemented by x/net/idna).
-		// The most prominent example is the mapping of German Eszett 'ß' to 'ss'
-		// because 'ss' will always be translated to `ß` with `ToUnicode` even
-		// if the `Transitional` option is set to `true`.
+		// Spec Rule: RFC 3491 (Table B.2)
+		// Map the German Eszett 'ß' to 'ss' as part of IDNA2003 Nameprep compatibility rules since x/net/idna
+		// implements IDNA2008 by default.
 		normalizedHost = strings.ReplaceAll(unicodeHost, "ß", "ss")
 	}
 
-	// Scheme-based port normalization.
+	// Step 3: Scheme-Based Port Normalization
+	// Elide the port delimiter and number if the port matches the default port defined by the scheme.
 	normalizedPort := port
 	if normalizedPort != "" {
 		isDefaultPort := (scheme == "http" && normalizedPort == "80") ||
@@ -165,27 +207,64 @@ func normalizeHostAndPort(host, port, scheme string) (string, string) {
 	return normalizedHost, normalizedPort
 }
 
-// normalizePercentEncoding decodes any percent-encoded octet that corresponds to an
-// unreserved character, as per RFC 3986 Section 6.2.2.2.
+// normalizePercentEncoding decodes percent-encoded octets that correspond to unreserved characters and normalizes
+// non-unreserved percent-encodings to uppercase.
+//
+// Specification Reference:
+// RFC 3986 (Section 6.2.2.1), RFC 3986 (Section 6.2.2.2), and RFC 3987 (Section 5.3.2.3)
+//
+// Parameters:
+//   - s: The component string containing potentially percent-encoded characters.
+//
+// Returns:
+// - string: The normalized string where percent-encoded unreserved characters are decoded and reserved
+// percent-encodings are uppercase.
 func normalizePercentEncoding(s string) string {
 	var b bytes.Buffer
 	b.Grow(len(s))
 	i := 0
 	for i < len(s) {
-		if s[i] == '%' && i+2 < len(s) && isASCIIHexDigit(rune(s[i+1])) && isASCIIHexDigit(rune(s[i+2])) {
+		// Spec Rule: RFC 3986 (Section 2.1)
+		// A percent-encoded octet is denoted by a percent character "%" followed by two hexadecimal digits.
+		if s[i] == '%' && i+2 < len(s) && isASCIIHexDigit(rune(s[i+1])) &&
+			isASCIIHexDigit(rune(s[i+2])) {
 			decoded, err := hex.DecodeString(s[i+1 : i+3])
 			if err == nil {
-				// Check if the decoded character is unreserved.
+				// Spec Rule: RFC 3986 (Section 2.3)
+				// Decode any percent-encoded octet sequence that corresponds to an unreserved character, which includes
+				// ALPHA, DIGIT, and "-", ".", "_", "~".
 				c := rune(decoded[0])
 				if isUnreserved(c) {
 					b.WriteRune(c)
 					i += 3
 					continue
 				}
+
+				// Spec Rule: RFC 3986 (Section 6.2.2.1)
+				// Normalize non-unreserved percent-encoded hex digits to uppercase.
+				b.WriteByte('%')
+				b.WriteByte(toUpperASCII(s[i+1]))
+				b.WriteByte(toUpperASCII(s[i+2]))
+				i += 3
+				continue
 			}
 		}
 		b.WriteByte(s[i])
 		i++
 	}
 	return b.String()
+}
+
+// toUpperASCII converts a lowercase ASCII byte to uppercase.
+//
+// Parameters:
+//   - b: The ASCII byte to convert.
+//
+// Returns:
+//   - byte: The uppercase ASCII byte, or the original byte if already uppercase or non-alphabetic.
+func toUpperASCII(b byte) byte {
+	if 'a' <= b && b <= 'z' {
+		return b - 'a' + 'A'
+	}
+	return b
 }

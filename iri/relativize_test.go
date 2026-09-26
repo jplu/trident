@@ -14,26 +14,153 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import (
+	"errors"
 	"testing"
 )
 
-// mustParseAbsoluteIri is a helper that parses a string into an Iri for tests,
-// panicking if the string is invalid.
-func mustParseAbsoluteIri(s string) *Iri {
-	iri, err := ParseIri(s)
-	if err != nil {
-		panic("test setup failed: could not parse base IRI: " + s)
+// TestRelativize tests the primary Relativize method on an absolute IRI,
+// covering all dispatch branches: target paths with dot segments, mismatched schemes,
+// differing authorities, empty paths with and without authority, same-path delegation,
+// and delegation to authority-based or no-authority algorithms.
+func TestRelativize(t *testing.T) {
+	testCases := []struct {
+		name        string
+		base        *Iri
+		target      *Iri
+		expected    string
+		expectError bool
+		expectedErr error
+	}{
+		{
+			name:        "target path contains single dot segment in middle",
+			base:        mustParseAbsoluteIri("http://example.com/a/b"),
+			target:      mustParseAbsoluteIri("http://example.com/a/./b"),
+			expectError: true,
+			expectedErr: ErrIriRelativize,
+		},
+		{
+			name:        "target path contains double dot segment in middle",
+			base:        mustParseAbsoluteIri("http://example.com/a/b"),
+			target:      mustParseAbsoluteIri("http://example.com/a/../b"),
+			expectError: true,
+			expectedErr: ErrIriRelativize,
+		},
+		{
+			name:        "target path is single dot",
+			base:        mustParseAbsoluteIri("http://example.com/a/b"),
+			target:      mustParseAbsoluteIri("http://example.com/."),
+			expectError: true,
+			expectedErr: ErrIriRelativize,
+		},
+		{
+			name:        "target path is double dot",
+			base:        mustParseAbsoluteIri("http://example.com/a/b"),
+			target:      mustParseAbsoluteIri("http://example.com/.."),
+			expectError: true,
+			expectedErr: ErrIriRelativize,
+		},
+		{
+			name:     "different schemes (http vs https)",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("https://example.com/a/b"),
+			expected: "https://example.com/a/b",
+		},
+		{
+			name:     "different schemes (http vs ftp)",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("ftp://example.com/a/b"),
+			expected: "ftp://example.com/a/b",
+		},
+		{
+			name:     "base has authority, target lacks authority",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("http:a/b"),
+			expected: "http:a/b",
+		},
+		{
+			name:     "base lacks authority, target has authority",
+			base:     mustParseAbsoluteIri("http:a/b"),
+			target:   mustParseAbsoluteIri("http://example.com/a/b"),
+			expected: "//example.com/a/b",
+		},
+		{
+			name:     "both have authorities, but authorities differ",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("http://other.com/a/b"),
+			expected: "//other.com/a/b",
+		},
+		{
+			name:     "different ports in authority",
+			base:     mustParseAbsoluteIri("http://example.com:8080/a"),
+			target:   mustParseAbsoluteIri("http://example.com:9090/a"),
+			expected: "//example.com:9090/a",
+		},
+		{
+			name:     "target has empty path and authority, base has path",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("http://example.com"),
+			expected: "//example.com",
+		},
+		{
+			name:     "target has empty path and no authority, base has path",
+			base:     mustParseAbsoluteIri("urn:foo"),
+			target:   mustParseAbsoluteIri("urn:"),
+			expected: "urn:",
+		},
+		{
+			name:     "same path, different query",
+			base:     mustParseAbsoluteIri("http://example.com/a/b?q=1"),
+			target:   mustParseAbsoluteIri("http://example.com/a/b?q=2"),
+			expected: "?q=2",
+		},
+		{
+			name:     "same path, identical",
+			base:     mustParseAbsoluteIri("http://example.com/a/b"),
+			target:   mustParseAbsoluteIri("http://example.com/a/b"),
+			expected: "",
+		},
+		{
+			name:     "neither has authority, delegating to relativizeForNoAuthority",
+			base:     mustParseAbsoluteIri("urn:foo:a/b/c"),
+			target:   mustParseAbsoluteIri("urn:foo:a/b/d"),
+			expected: "d",
+		},
+		{
+			name:     "both have authority, delegating to relativizeWithAuthority",
+			base:     mustParseAbsoluteIri("http://example.com/a/b/c"),
+			target:   mustParseAbsoluteIri("http://example.com/a/b/d"),
+			expected: "d",
+		},
 	}
-	return iri
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, err := tc.base.Relativize(tc.target)
+			if tc.expectError {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tc.expectedErr != nil && !errors.Is(err, tc.expectedErr) {
+					t.Errorf("expected error %v, got %v", tc.expectedErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Relativize failed: %v", err)
+			}
+			if ref.String() != tc.expected {
+				t.Errorf("expected relative ref %q, got %q", tc.expected, ref.String())
+			}
+		})
+	}
 }
 
 // TestBuildRelativeRef tests the construction of a relative reference from its parts.
-// This is the most basic building block for the relativize functions, based on
-// the component recomposition logic from RFC 3986, Section 5.3.
 func TestBuildRelativeRef(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -160,7 +287,6 @@ func TestRelativizeForSamePathWithEmptyTargetQuery(t *testing.T) {
 }
 
 // TestRelativizeForSamePath tests relativization when base and target paths are identical.
-// RFC 3986, Section 4.4 discusses same-document references.
 func TestRelativizeForSamePath(t *testing.T) {
 	base := mustParseAbsoluteIri("http://a/b/c?q=1")
 
@@ -265,6 +391,18 @@ func TestRelativizeForNoAuthority(t *testing.T) {
 			expected: "./c:d",
 		},
 		{
+			name:     "relative path with colon in subsequent segment does not require ./ prefix",
+			base:     mustParseAbsoluteIri("urn:foo:a/b/c"),
+			target:   mustParseAbsoluteIri("urn:foo:a/b/d/e:f"),
+			expected: "d/e:f",
+		},
+		{
+			name:     "relpath starting with slash",
+			base:     mustParseAbsoluteIri("urn:a"),
+			target:   mustParseAbsoluteIri("urn:/b/c"),
+			expected: "/b/c",
+		},
+		{
 			name:     "empty relpath becomes dot",
 			base:     mustParseAbsoluteIri("scheme:a/b"),
 			target:   mustParseAbsoluteIri("scheme:a/"),
@@ -286,7 +424,6 @@ func TestRelativizeForNoAuthority(t *testing.T) {
 }
 
 // TestRelativizeWithAuthority tests relativization for IRIs with an authority component.
-// The logic is the inverse of path resolution defined in RFC 3986, Section 5.2.
 func TestRelativizeWithAuthority(t *testing.T) {
 	base := mustParseAbsoluteIri("http://a/b/c/d;p")
 
@@ -350,6 +487,12 @@ func TestRelativizeWithAuthority(t *testing.T) {
 			target:   "http://a/b/c/g",
 			expected: "g",
 		},
+		{
+			name:     "target is parent file of directory base",
+			base:     mustParseAbsoluteIri("http://example.com/a/b/c"),
+			target:   "http://example.com/a/b",
+			expected: "../b",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -361,6 +504,54 @@ func TestRelativizeWithAuthority(t *testing.T) {
 			}
 			if ref.String() != tc.expected {
 				t.Errorf("Expected relative ref '%s', got '%s'", tc.expected, ref.String())
+			}
+		})
+	}
+}
+
+// TestSplitPathSegments tests the internal helper function splitPathSegments
+// to ensure correct behavior and full branch coverage.
+func TestSplitPathSegments(t *testing.T) {
+	testCases := []struct {
+		name         string
+		path         string
+		expectedSegs []string
+		expectedFile string
+	}{
+		{
+			name:         "empty path",
+			path:         "",
+			expectedSegs: nil,
+			expectedFile: "",
+		},
+		{
+			name:         "path with trailing slash",
+			path:         "a/b/",
+			expectedSegs: []string{"a", "b"},
+			expectedFile: "",
+		},
+		{
+			name:         "normal path without trailing slash",
+			path:         "a/b/c",
+			expectedSegs: []string{"a", "b"},
+			expectedFile: "c",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			segs, file := splitPathSegments(tc.path)
+
+			if len(segs) != len(tc.expectedSegs) {
+				t.Fatalf("expected %d segments, got %d", len(tc.expectedSegs), len(segs))
+			}
+			for i := range segs {
+				if segs[i] != tc.expectedSegs[i] {
+					t.Errorf("at index %d: expected segment %q, got %q", i, tc.expectedSegs[i], segs[i])
+				}
+			}
+			if file != tc.expectedFile {
+				t.Errorf("expected file %q, got %q", tc.expectedFile, file)
 			}
 		})
 	}

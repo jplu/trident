@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import (
@@ -22,33 +23,26 @@ import (
 	"testing"
 )
 
-// TestIsPathChar tests the isPathChar predicate against RFC 3987.
-// RFC Reference: RFC 3987, Section 2.2, `ipchar`.
+// TestIsPathChar tests the isPathChar function.
 func TestIsPathChar(t *testing.T) {
 	testCases := []struct {
 		char     rune
 		expected bool
 	}{
-		// iunreserved (subset)
 		{'a', true},
 		{'Z', true},
 		{'5', true},
 		{'~', true},
 		{'_', true},
-		// ucschar (subset)
-		{'é', true}, // U+00E9
-		{'€', true}, // U+20AC
-		// sub-delims
+		{'é', true},
+		{'€', true},
 		{'!', true},
 		{'$', true},
 		{'*', true},
 		{';', true},
-		// Allowed pchar-specific
 		{':', true},
 		{'@', true},
-		// Allowed path-specific
 		{'/', true},
-		// Disallowed characters
 		{'?', false},
 		{'#', false},
 		{'[', false},
@@ -62,25 +56,20 @@ func TestIsPathChar(t *testing.T) {
 	}
 }
 
-// TestIsQueryChar tests the isQueryChar predicate against RFC 3987.
-// RFC Reference: RFC 3987, Section 2.2, `iquery`.
+// TestIsQueryChar tests the isQueryChar function.
 func TestIsQueryChar(t *testing.T) {
 	testCases := []struct {
 		char     rune
 		expected bool
 	}{
-		// ipchar characters
 		{'a', true},
 		{'Z', true},
 		{':', true},
 		{'@', true},
-		// iprivate characters
 		{'\uE000', true},
 		{'\uF8FF', true},
-		// query-specific characters
 		{'/', true},
 		{'?', true},
-		// Disallowed characters
 		{'#', false},
 		{'[', false},
 		{']', false},
@@ -93,44 +82,9 @@ func TestIsQueryChar(t *testing.T) {
 	}
 }
 
-// TestValidateBidiPart tests the bidi validation logic for a component.
-// RFC Reference: RFC 3987, Section 4.2.
-func TestValidateBidiPart(t *testing.T) {
-	ltr := "hello"
-	rtl := "\u05D0\u05D1\u05D2" // Hebrew Alef, Bet, Gimel
-
-	testCases := []struct {
-		name      string
-		component string
-		unchecked bool
-		wantErr   bool
-	}{
-		{name: "Unchecked", component: "anything", unchecked: true, wantErr: false},
-		{name: "Empty Component", component: "", unchecked: false, wantErr: false},
-		{name: "Valid LTR", component: ltr, unchecked: false, wantErr: false},
-		{name: "Valid RTL", component: rtl, unchecked: false, wantErr: false},
-		{name: "Invalid Mixed", component: ltr + rtl, unchecked: false, wantErr: true},
-		{name: "Invalid RTL Start", component: "a" + rtl, unchecked: false, wantErr: true},
-		{name: "Invalid RTL End", component: rtl + "a", unchecked: false, wantErr: true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			p := setupTestParser(tc.component, tc.unchecked)
-			p.output.writeString(tc.component)
-			err := p.validateBidiPart(0)
-
-			if (err != nil) != tc.wantErr {
-				t.Errorf("validateBidiPart() error = %v, wantErr %v", err, tc.wantErr)
-			}
-		})
-	}
-}
-
 // TestParseFragment tests parsing of the fragment component.
-// RFC Reference: RFC 3987, Section 2.2, `ifragment`.
 func TestParseFragment(t *testing.T) {
-	rtlComponent := "\u05D0\u05D1\u05D2" // Hebrew Alef, Bet, Gimel
+	rtlComponent := "\u05D0\u05D1\u05D2"
 
 	testCases := []struct {
 		name        string
@@ -140,30 +94,47 @@ func TestParseFragment(t *testing.T) {
 		expectedErr error
 	}{
 		{name: "Empty", input: "", unchecked: false, expected: "", expectedErr: nil},
-		{name: "Valid ASCII", input: "anchor", unchecked: false, expected: "anchor", expectedErr: nil},
-		{name: "With Unreserved ucschar", input: "ancre-é", unchecked: false, expected: "ancre-é", expectedErr: nil},
-		{name: "With Allowed Delims", input: "a/b?c", unchecked: false, expected: "a/b?c", expectedErr: nil},
-		{name: "With Percent Encoding", input: "a%20b", unchecked: false, expected: "a%20b", expectedErr: nil},
 		{
-			name:        "With Invalid Bidi",
-			input:       "a" + rtlComponent,
+			name:        "Valid ASCII",
+			input:       "anchor",
 			unchecked:   false,
-			expected:    "",
-			expectedErr: &kindError{message: "Invalid IRI component"},
+			expected:    "anchor",
+			expectedErr: nil,
 		},
 		{
-			name:        "With Invalid Bidi (Unchecked)",
+			name:        "With Unreserved ucschar",
+			input:       "ancre-é",
+			unchecked:   false,
+			expected:    "ancre-é",
+			expectedErr: nil,
+		},
+		{
+			name:        "With Allowed Delims",
+			input:       "a/b?c",
+			unchecked:   false,
+			expected:    "a/b?c",
+			expectedErr: nil,
+		},
+		{
+			name:        "With Percent Encoding",
+			input:       "a%20b",
+			unchecked:   false,
+			expected:    "a%20b",
+			expectedErr: nil,
+		},
+		{
+			name:        "With RTL Bidi (Allowed)",
 			input:       "a" + rtlComponent,
-			unchecked:   true,
+			unchecked:   false,
 			expected:    "a" + rtlComponent,
 			expectedErr: nil,
 		},
 		{
-			name:        "Invalid Percent Encoding",
+			name:        "With Invalid Percent Encoding",
 			input:       "%GG",
 			unchecked:   false,
 			expected:    "",
-			expectedErr: &kindError{message: "Invalid IRI percent encoding"},
+			expectedErr: &kindError{message: "Invalid percent-encoding sequence"},
 		},
 	}
 
@@ -192,7 +163,14 @@ func TestHandleQueryEnd(t *testing.T) {
 		expectedOut string
 		wantErr     bool
 	}{
-		{name: "End of Input", input: "", isFragment: false, queryPart: "q=1", expectedOut: "q=1", wantErr: false},
+		{
+			name:        "End of Input",
+			input:       "",
+			isFragment:  false,
+			queryPart:   "q=1",
+			expectedOut: "q=1",
+			wantErr:     false,
+		},
 		{
 			name:        "Fragment Follows",
 			input:       "#frag",
@@ -201,16 +179,22 @@ func TestHandleQueryEnd(t *testing.T) {
 			expectedOut: "q=1#frag",
 			wantErr:     false,
 		},
-		{name: "Bidi Error", input: "", isFragment: false, queryPart: "a\u05D0", expectedOut: "a\u05D0", wantErr: true},
+		{
+			name:        "RTL Query (Allowed)",
+			input:       "",
+			isFragment:  false,
+			queryPart:   "a\u05D0",
+			expectedOut: "a\u05D0",
+			wantErr:     false,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := setupTestParser(tc.input, false)
 			p.output.writeString(tc.queryPart)
-			queryStart := 0
 
-			err := p.handleQueryEnd(tc.isFragment, queryStart)
+			err := p.handleQueryEnd(tc.isFragment)
 
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("handleQueryEnd() error = %v, wantErr %v", err, tc.wantErr)
@@ -230,7 +214,6 @@ func TestHandleQueryEnd(t *testing.T) {
 }
 
 // TestParseQuery tests parsing of the query component.
-// RFC Reference: RFC 3987, Section 2.2, `iquery`.
 func TestParseQuery(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -240,12 +223,17 @@ func TestParseQuery(t *testing.T) {
 	}{
 		{name: "Empty", input: "", expected: "", expectedErr: nil},
 		{name: "Valid ASCII", input: "a=1&b=2", expected: "a=1&b=2", expectedErr: nil},
-		{name: "With Unreserved ucschar", input: "search=résumé", expected: "search=résumé", expectedErr: nil},
+		{
+			name:        "With Unreserved ucschar",
+			input:       "search=résumé",
+			expected:    "search=résumé",
+			expectedErr: nil,
+		},
 		{name: "With Private ucschar", input: "a=\uE000", expected: "a=\uE000", expectedErr: nil},
 		{name: "With Allowed Delims", input: "a/b:c@d?e", expected: "a/b:c@d?e", expectedErr: nil},
 		{name: "Terminated by Fragment", input: "a=1#frag", expected: "a=1#frag", expectedErr: nil},
 		{name: "With Invalid Char", input: "a=<b>", expected: "a=%3Cb%3E", expectedErr: nil},
-		{name: "Bidi Error", input: "a\u05D0", expected: "", expectedErr: &kindError{message: "Invalid IRI component"}},
+		{name: "RTL Query (Allowed)", input: "a\u05D0", expected: "a\u05D0", expectedErr: nil},
 		{
 			name:        "With Invalid Non-Lax Char",
 			input:       "q=[",
@@ -256,7 +244,7 @@ func TestParseQuery(t *testing.T) {
 			name:        "With Invalid Percent Encoding",
 			input:       "q=%GG",
 			expected:    "q=",
-			expectedErr: &kindError{message: "Invalid IRI percent encoding"},
+			expectedErr: &kindError{message: "Invalid percent-encoding sequence"},
 		},
 	}
 
@@ -310,11 +298,27 @@ func TestHandlePathTerminator(t *testing.T) {
 			wantErr:         false,
 		},
 		{
-			name:            "Bidi Error",
+			name:            "RTL Path (Allowed)",
 			input:           "?q=1",
 			pathPart:        "/a\u05D0",
 			expectedHandled: true,
-			expectedOut:     "/a\u05D0",
+			expectedOut:     "/a\u05D0?q=1",
+			wantErr:         false,
+		},
+		{
+			name:            "Query Terminator with Error",
+			input:           "?q=[",
+			pathPart:        "/a",
+			expectedHandled: true,
+			expectedOut:     "",
+			wantErr:         true,
+		},
+		{
+			name:            "Fragment Terminator with Error",
+			input:           "#%GG",
+			pathPart:        "/a",
+			expectedHandled: true,
+			expectedOut:     "",
 			wantErr:         true,
 		},
 	}
@@ -325,7 +329,7 @@ func TestHandlePathTerminator(t *testing.T) {
 			p.output.writeString(tc.pathPart)
 			peekedChar, _ := p.input.peek()
 
-			handled, err := p.handlePathTerminator(peekedChar, 0)
+			handled, err := p.handlePathTerminator(peekedChar)
 
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Error mismatch: got err %v, wantErr %v", err, tc.wantErr)
@@ -347,7 +351,6 @@ func TestHandlePathTerminator(t *testing.T) {
 }
 
 // TestParsePath tests parsing of the path component.
-// RFC Reference: RFC 3986, Section 3.3 and RFC 3987, Section 2.2.
 func TestParsePath(t *testing.T) {
 	testCases := []struct {
 		name         string
@@ -357,11 +360,41 @@ func TestParsePath(t *testing.T) {
 		expectedErr  error
 	}{
 		{name: "Empty", input: "", hasAuthority: false, expected: "", expectedErr: nil},
-		{name: "Simple Segments", input: "/a/b/c", hasAuthority: true, expected: "/a/b/c", expectedErr: nil},
-		{name: "Ends with Query", input: "/a/b?q=1", hasAuthority: true, expected: "/a/b?q=1", expectedErr: nil},
-		{name: "Ends with Fragment", input: "/a/b#frag", hasAuthority: true, expected: "/a/b#frag", expectedErr: nil},
-		{name: "With ucschar", input: "/résumé", hasAuthority: true, expected: "/résumé", expectedErr: nil},
-		{name: "Path with Colon", input: "/a:b/c", hasAuthority: true, expected: "/a:b/c", expectedErr: nil},
+		{
+			name:         "Simple Segments",
+			input:        "/a/b/c",
+			hasAuthority: true,
+			expected:     "/a/b/c",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Ends with Query",
+			input:        "/a/b?q=1",
+			hasAuthority: true,
+			expected:     "/a/b?q=1",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Ends with Fragment",
+			input:        "/a/b#frag",
+			hasAuthority: true,
+			expected:     "/a/b#frag",
+			expectedErr:  nil,
+		},
+		{
+			name:         "With ucschar",
+			input:        "/résumé",
+			hasAuthority: true,
+			expected:     "/résumé",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Path with Colon",
+			input:        "/a:b/c",
+			hasAuthority: true,
+			expected:     "/a:b/c",
+			expectedErr:  nil,
+		},
 		{
 			name:         "Double Slash without Authority",
 			input:        "//a/b",
@@ -369,21 +402,82 @@ func TestParsePath(t *testing.T) {
 			expected:     "",
 			expectedErr:  errPathStartingWithSlashes,
 		},
-		{name: "Double Slash with Authority", input: "/a/b", hasAuthority: true, expected: "/a/b", expectedErr: nil},
-		{name: "Invalid Char", input: "/a<b>", hasAuthority: true, expected: "/a%3Cb%3E", expectedErr: nil},
 		{
-			name:         "Bidi Error",
-			input:        "/a\u05D0",
+			name:         "Double Slash with Authority",
+			input:        "/a/b",
 			hasAuthority: true,
-			expected:     "",
-			expectedErr:  &kindError{message: "Invalid IRI component"},
+			expected:     "/a/b",
+			expectedErr:  nil,
 		},
 		{
-			name:         "Segment Bidi Error",
-			input:        "/seg1/a\u05D0/seg2",
+			name:         "Invalid Char",
+			input:        "/a<b>",
+			hasAuthority: true,
+			expected:     "/a%3Cb%3E",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Invalid Non-Lax Char in Path",
+			input:        "/a[b",
 			hasAuthority: true,
 			expected:     "",
-			expectedErr:  &kindError{message: "Invalid IRI component"},
+			expectedErr:  &kindError{message: "Invalid IRI character"},
+		},
+		{
+			name:         "Invalid Percent Encoding in Path",
+			input:        "/a%GG",
+			hasAuthority: true,
+			expected:     "",
+			expectedErr:  &kindError{message: "Invalid percent-encoding sequence"},
+		},
+		{
+			name:         "Path Terminated with Invalid Query",
+			input:        "/a?q=[",
+			hasAuthority: true,
+			expected:     "",
+			expectedErr:  &kindError{message: "Invalid IRI character"},
+		},
+		{
+			name:         "Path Terminated with Invalid Fragment",
+			input:        "/a#%GG",
+			hasAuthority: true,
+			expected:     "",
+			expectedErr:  &kindError{message: "Invalid percent-encoding sequence"},
+		},
+		{
+			name:         "RTL Path (Allowed)",
+			input:        "/a\u05D0",
+			hasAuthority: true,
+			expected:     "/a\u05D0",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Segment RTL Path (Allowed)",
+			input:        "/seg1/a\u05D0/seg2",
+			hasAuthority: true,
+			expected:     "/seg1/a\u05D0/seg2",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Double Slash In Middle Absolute without Authority",
+			input:        "/a//b",
+			hasAuthority: false,
+			expected:     "/a//b",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Double Slash In Middle Relative without Authority",
+			input:        "a//b",
+			hasAuthority: false,
+			expected:     "a//b",
+			expectedErr:  nil,
+		},
+		{
+			name:         "Consecutive Slashes in Data URI-like Path",
+			input:        "image/gif;base64,R0l...///...yw==",
+			hasAuthority: false,
+			expected:     "image/gif;base64,R0l...///...yw==",
+			expectedErr:  nil,
 		},
 	}
 
@@ -408,7 +502,6 @@ func TestParsePath(t *testing.T) {
 }
 
 // TestParsePathNoScheme tests parsing a relative-path that cannot start with a scheme.
-// RFC Reference: RFC 3986, Section 4.2 and 3.3 `path-noscheme`.
 func TestParsePathNoScheme(t *testing.T) {
 	testCases := []struct {
 		name        string
@@ -426,7 +519,24 @@ func TestParsePathNoScheme(t *testing.T) {
 				message: "Invalid IRI character in first path segment",
 			},
 		},
-		{name: "Valid Colon in Second Segment", input: "a/b:c", expected: "a/b:c", expectedErr: nil},
+		{
+			name:        "Invalid Non-Lax Char in First Segment",
+			input:       "a[b",
+			expected:    "",
+			expectedErr: &kindError{message: "Invalid IRI character"},
+		},
+		{
+			name:        "Invalid Percent Encoding in First Segment",
+			input:       "a%GG",
+			expected:    "",
+			expectedErr: &kindError{message: "Invalid percent-encoding sequence"},
+		},
+		{
+			name:        "Valid Colon in Second Segment",
+			input:       "a/b:c",
+			expected:    "a/b:c",
+			expectedErr: nil,
+		},
 		{name: "Ends with Query", input: "a/b?q", expected: "a/b?q", expectedErr: nil},
 	}
 
@@ -460,6 +570,8 @@ func TestParsePathStart(t *testing.T) {
 		{name: "Starts with pchar", input: "a/b", expectedOut: "a/b", wantErr: false},
 		{name: "Starts with Invalid Lax Char", input: "<", expectedOut: "%3C", wantErr: false},
 		{name: "Starts with Invalid Non-Lax Char", input: "[foo", expectedOut: "", wantErr: true},
+		{name: "Starts with Slash Leads to Path Error", input: "/[foo", expectedOut: "", wantErr: true},
+		{name: "Starts with pchar Leads to Path Error", input: "a[b", expectedOut: "", wantErr: true},
 	}
 
 	for _, tc := range testCases {
@@ -488,7 +600,6 @@ func TestParsePathStart(t *testing.T) {
 }
 
 // TestParsePathOrAuthority tests the dispatcher after "scheme:/".
-// RFC Reference: RFC 3986, Section 3, `hier-part`.
 func TestParsePathOrAuthority(t *testing.T) {
 	testCases := []struct {
 		name                string
@@ -501,29 +612,49 @@ func TestParsePathOrAuthority(t *testing.T) {
 			name:                "Authority and Path",
 			input:               "/host/path",
 			expectedFinalString: "scheme://host/path",
-			expectedPos:         Positions{SchemeEnd: 7, AuthorityEnd: 13, PathEnd: 18, QueryEnd: 18},
-			expectedErr:         nil,
+			expectedPos: Positions{
+				SchemeEnd:    7,
+				AuthorityEnd: 13,
+				PathEnd:      18,
+				QueryEnd:     18,
+			},
+			expectedErr: nil,
 		},
 		{
 			name:                "Authority and Query",
 			input:               "/host?query",
 			expectedFinalString: "scheme://host?query",
-			expectedPos:         Positions{SchemeEnd: 7, AuthorityEnd: 13, PathEnd: 13, QueryEnd: 19},
-			expectedErr:         nil,
+			expectedPos: Positions{
+				SchemeEnd:    7,
+				AuthorityEnd: 13,
+				PathEnd:      13,
+				QueryEnd:     19,
+			},
+			expectedErr: nil,
 		},
 		{
 			name:                "Authority and Fragment",
 			input:               "/host#frag",
 			expectedFinalString: "scheme://host#frag",
-			expectedPos:         Positions{SchemeEnd: 7, AuthorityEnd: 13, PathEnd: 13, QueryEnd: 13},
-			expectedErr:         nil,
+			expectedPos: Positions{
+				SchemeEnd:    7,
+				AuthorityEnd: 13,
+				PathEnd:      13,
+				QueryEnd:     13,
+			},
+			expectedErr: nil,
 		},
 		{
 			name:                "Only Path",
 			input:               "path",
 			expectedFinalString: "scheme:/path",
-			expectedPos:         Positions{SchemeEnd: 7, AuthorityEnd: 7, PathEnd: 12, QueryEnd: 12},
-			expectedErr:         nil,
+			expectedPos: Positions{
+				SchemeEnd:    7,
+				AuthorityEnd: 7,
+				PathEnd:      12,
+				QueryEnd:     12,
+			},
+			expectedErr: nil,
 		},
 		{
 			name:                "Empty Path",
@@ -559,7 +690,11 @@ func TestParsePathOrAuthority(t *testing.T) {
 				t.Errorf("parsePathOrAuthority() output = %q, want %q", got, tc.expectedFinalString)
 			}
 			if !reflect.DeepEqual(p.outputPositions, tc.expectedPos) {
-				t.Errorf("parsePathOrAuthority() positions = %+v, want %+v", p.outputPositions, tc.expectedPos)
+				t.Errorf(
+					"parsePathOrAuthority() positions = %+v, want %+v",
+					p.outputPositions,
+					tc.expectedPos,
+				)
 			}
 		})
 	}

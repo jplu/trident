@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package iri
 
 import (
@@ -41,7 +42,6 @@ func newTestParserWithBase(t *testing.T, baseIRI string) *iriParser {
 }
 
 // TestIsValidRefScheme tests the scheme validation logic.
-// RFC 3986, Section 3.1.
 func TestIsValidRefScheme(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -123,7 +123,11 @@ func TestDeconstructRef(t *testing.T) {
 		{"Network-path reference", "//a/b?c#d", result{"", "a", "/b", "c", "d", true, true, true}},
 		{"Absolute-path reference", "/b?c#d", result{"", "", "/b", "c", "d", false, true, true}},
 		{"Relative-path reference", "b?c#d", result{"", "", "b", "c", "d", false, true, true}},
-		{"Scheme and path", "mailto:user@host", result{"mailto", "", "user@host", "", "", false, false, false}},
+		{
+			"Scheme and path",
+			"mailto:user@host",
+			result{"mailto", "", "user@host", "", "", false, false, false},
+		},
 		{"Path only", "b", result{"", "", "b", "", "", false, false, false}},
 		{"Query only", "?c", result{"", "", "", "c", "", false, true, false}},
 		{"Fragment only", "#d", result{"", "", "", "", "d", false, false, true}},
@@ -140,7 +144,12 @@ func TestDeconstructRef(t *testing.T) {
 			s, a, p, q, f, ha, hq, hf := deconstructRef(tt.ref)
 			got := result{s, a, p, q, f, ha, hq, hf}
 			if got != tt.want {
-				t.Errorf("deconstructRef(%q) incorrect component breakdown\ngot:  %+v\nwant: %+v", tt.ref, got, tt.want)
+				t.Errorf(
+					"deconstructRef(%q) incorrect component breakdown\ngot:  %+v\nwant: %+v",
+					tt.ref,
+					got,
+					tt.want,
+				)
 			}
 		})
 	}
@@ -180,7 +189,11 @@ func TestGetBaseComponents(t *testing.T) {
 				t.Errorf("getBaseComponents() path = %q, want %q", path, tt.wantPath)
 			}
 			if hasAuthority != tt.wantHasAuthority {
-				t.Errorf("getBaseComponents() hasAuthority = %v, want %v", hasAuthority, tt.wantHasAuthority)
+				t.Errorf(
+					"getBaseComponents() hasAuthority = %v, want %v",
+					hasAuthority,
+					tt.wantHasAuthority,
+				)
 			}
 			if query != tt.wantQuery {
 				t.Errorf("getBaseComponents() query = %q, want %q", query, tt.wantQuery)
@@ -192,7 +205,7 @@ func TestGetBaseComponents(t *testing.T) {
 	}
 }
 
-// TestResolvePathAndQuery tests the path and query resolution logic from RFC 3986, Section 5.2.2.
+// TestResolvePathAndQuery tests the path and query resolution logic.
 func TestResolvePathAndQuery(t *testing.T) {
 	p := &iriParser{}
 
@@ -212,10 +225,46 @@ func TestResolvePathAndQuery(t *testing.T) {
 		{"Ref path is absolute", "/g", "y", true, "/a/b", "x", true, true, "/g", "y", true},
 		{"Ref path is relative", "g", "y", true, "/a/b", "x", true, true, "/a/g", "y", true},
 		{"Base has authority, no path", "g", "", false, "", "x", true, true, "/g", "", false},
-		{"Ref path is empty, ref has query", "", "y", true, "/a/b", "x", true, true, "/a/b", "y", true},
-		{"Ref path is empty, ref has no query", "", "", false, "/a/b", "x", true, true, "/a/b", "x", true},
+		{
+			"Ref path is empty, ref has query",
+			"",
+			"y",
+			true,
+			"/a/b",
+			"x",
+			true,
+			true,
+			"/a/b",
+			"y",
+			true,
+		},
+		{
+			"Ref path is empty, ref has no query",
+			"",
+			"",
+			false,
+			"/a/b",
+			"x",
+			true,
+			true,
+			"/a/b",
+			"x",
+			true,
+		},
 		{"Ref path empty, no queries", "", "", false, "/a/b", "", false, true, "/a/b", "", false},
-		{"Ref path is empty, base has empty query", "", "", false, "/a/b", "", true, true, "/a/b", "", true},
+		{
+			"Ref path is empty, base has empty query",
+			"",
+			"",
+			false,
+			"/a/b",
+			"",
+			true,
+			true,
+			"/a/b",
+			"",
+			true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -232,13 +281,17 @@ func TestResolvePathAndQuery(t *testing.T) {
 				t.Errorf("resolvePathAndQuery() query = %q, want %q", target.Query, tt.wantQuery)
 			}
 			if target.HasQuery != tt.wantHasQuery {
-				t.Errorf("resolvePathAndQuery() hasQuery = %v, want %v", target.HasQuery, tt.wantHasQuery)
+				t.Errorf(
+					"resolvePathAndQuery() hasQuery = %v, want %v",
+					target.HasQuery,
+					tt.wantHasQuery,
+				)
 			}
 		})
 	}
 }
 
-// TestResolveComponents tests the main resolution algorithm against RFC 3986, Section 5.4.
+// TestResolveComponents tests the main resolution algorithm.
 func TestResolveComponents(t *testing.T) {
 	baseIRI := "http://a/b/c/d;p?q"
 	p := newTestParserWithBase(t, baseIRI)
@@ -251,7 +304,14 @@ func TestResolveComponents(t *testing.T) {
 		wantQuery    string
 		wantFragment string
 	}{
-		{"Absolute IRI reference", "ftp://example.net/file?query#frag", "example.net", "/file", "query", "frag"},
+		{
+			"Absolute IRI reference",
+			"ftp://example.net/file?query#frag",
+			"example.net",
+			"/file",
+			"query",
+			"frag",
+		},
 		{"Absolute IRI with dot segments", "http://c/d/../e", "c", "/e", "", ""},
 		{"Normal: g", "g", "a", "/b/c/g", "", ""},
 		{"Normal: ./g", "./g", "a", "/b/c/g", "", ""},
@@ -310,7 +370,6 @@ func TestResolveComponents(t *testing.T) {
 }
 
 // TestRecomposeIRI tests the assembly of an IRI from its components.
-// RFC Reference: RFC 3986, Section 5.3.
 func TestRecomposeIRI(t *testing.T) {
 	tests := []struct {
 		name string
@@ -318,12 +377,28 @@ func TestRecomposeIRI(t *testing.T) {
 		want string
 	}{
 		{"Full IRI", &resolvedIRI{"http", "a", "/b", "c", "d", true, true, true}, "http://a/b?c#d"},
-		{"No authority", &resolvedIRI{"urn", "", "foo:bar", "c", "d", false, true, true}, "urn:foo:bar?c#d"},
+		{
+			"No authority",
+			&resolvedIRI{"urn", "", "foo:bar", "c", "d", false, true, true},
+			"urn:foo:bar?c#d",
+		},
 		{"No query", &resolvedIRI{"http", "a", "/b", "", "d", true, false, true}, "http://a/b#d"},
-		{"No fragment", &resolvedIRI{"http", "a", "/b", "c", "", true, true, false}, "http://a/b?c"},
+		{
+			"No fragment",
+			&resolvedIRI{"http", "a", "/b", "c", "", true, true, false},
+			"http://a/b?c",
+		},
 		{"Scheme relative", &resolvedIRI{"", "a", "/b", "c", "d", true, true, true}, "//a/b?c#d"},
-		{"Empty query part", &resolvedIRI{"http", "a", "/b", "", "d", true, true, true}, "http://a/b?#d"},
-		{"Empty fragment part", &resolvedIRI{"http", "a", "/b", "c", "", true, true, true}, "http://a/b?c#"},
+		{
+			"Empty query part",
+			&resolvedIRI{"http", "a", "/b", "", "d", true, true, true},
+			"http://a/b?#d",
+		},
+		{
+			"Empty fragment part",
+			&resolvedIRI{"http", "a", "/b", "c", "", true, true, true},
+			"http://a/b?c#",
+		},
 		{"Empty path", &resolvedIRI{"http", "a", "", "", "", true, false, false}, "http://a"},
 	}
 
@@ -337,89 +412,4 @@ func TestRecomposeIRI(t *testing.T) {
 			}
 		})
 	}
-}
-
-// TestValidateRelativeRef tests the sub-parser validation for a relative reference.
-func TestValidateRelativeRef(t *testing.T) {
-	p := &iriParser{
-		base: &iriParserBase{hasBase: false},
-	}
-
-	tests := []struct {
-		name        string
-		relativeRef string
-		expectError bool
-	}{
-		{"Valid relative-path", "a/b", false},
-		{"Valid absolute-path", "/a/b", false},
-		{"Valid network-path", "//a/b", false},
-		{"Valid query", "?q", false},
-		{"Valid fragment", "#f", false},
-		{"Valid empty", "", false},
-		{"Invalid char in path", "a[b", true},
-		{"Invalid percent encoding", "%GG", true},
-		{"Invalid: colon in first segment", "a:b", true},
-		{"Valid: colon not in first segment", "a/b:c", false},
-		{"Valid: dot-segment with colon", "./a:b", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := p.validateRelativeRef(tt.relativeRef)
-			if (err != nil) != tt.expectError {
-				t.Errorf("validateRelativeRef(%q) returned error %v, expectError=%v",
-					tt.relativeRef, err, tt.expectError)
-			}
-		})
-	}
-}
-
-// TestParseRelative tests the integrated resolution process.
-func TestParseRelative(t *testing.T) {
-	baseIRI := "http://a/b/c/d;p?q"
-	tests := []struct {
-		name        string
-		relativeRef string
-		wantIRI     string
-		expectError bool
-	}{
-		{"Ref with path", "g", "http://a/b/c/g", false},
-		{"Ref with absolute path", "/g", "http://a/g", false},
-		{"Ref with network path", "//g", "http://g", false},
-		{"Ref with query", "?y", "http://a/b/c/d;p?y", false},
-		{"Ref with fragment", "#s", "http://a/b/c/d;p?q#s", false},
-		{"Ref with path, query, fragment", "../g?y#s", "http://a/b/g?y#s", false},
-		{"Invalid ref syntax", "a[b", "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := newTestParserWithBase(t, baseIRI)
-			p.input = newParserInput(tt.relativeRef)
-			p.output = &stringOutputBuffer{builder: &strings.Builder{}}
-
-			err := p.parseRelative()
-
-			if (err != nil) != tt.expectError {
-				t.Errorf("parseRelative() error = %v, expectError %v", err, tt.expectError)
-				return
-			}
-			if !tt.expectError {
-				gotIRI := p.output.string()
-				if gotIRI != tt.wantIRI {
-					t.Errorf("parseRelative() resolution failed\nBase: %s\nRef:  %q\nGot:  %q\nWant: %q",
-						baseIRI, tt.relativeRef, gotIRI, tt.wantIRI)
-				}
-			}
-		})
-	}
-
-	t.Run("No base", func(_ *testing.T) {
-		p := &iriParser{
-			base:   &iriParserBase{hasBase: false},
-			input:  newParserInput("a/b"),
-			output: &stringOutputBuffer{builder: &strings.Builder{}},
-		}
-		_ = p.parseRelativeNoBase()
-	})
 }

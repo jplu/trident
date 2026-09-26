@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package langtag
 
 import (
@@ -22,9 +23,8 @@ import (
 	"testing"
 )
 
-// Test_isAlpha verifies the isAlpha function according to RFC 5646, Section 2.1,
-// which defines ALPHA as A-Z / a-z.
-func Test_isAlpha(t *testing.T) {
+// TestIsAlpha verifies the isAlpha function which defines ALPHA as A-Z / a-z.
+func TestIsAlpha(t *testing.T) {
 	tests := []struct {
 		name     string
 		b        byte
@@ -51,9 +51,8 @@ func Test_isAlpha(t *testing.T) {
 	}
 }
 
-// Test_isDigit verifies the isDigit function according to RFC 5646, Section 2.1,
-// which defines DIGIT as 0-9.
-func Test_isDigit(t *testing.T) {
+// TestIsDigit verifies the isDigit function which defines DIGIT as 0-9.
+func TestIsDigit(t *testing.T) {
 	tests := []struct {
 		name     string
 		b        byte
@@ -77,9 +76,8 @@ func Test_isDigit(t *testing.T) {
 	}
 }
 
-// Test_isAlphanum verifies the isAlphanum function according to RFC 5646, Section 2.1,
-// which defines alphanum as ALPHA / DIGIT.
-func Test_isAlphanum(t *testing.T) {
+// TestIsAlphanum verifies the isAlphanum function which defines alphanum as ALPHA / DIGIT.
+func TestIsAlphanum(t *testing.T) {
 	tests := []struct {
 		name     string
 		b        byte
@@ -106,9 +104,9 @@ func Test_isAlphanum(t *testing.T) {
 	}
 }
 
-// Test_isLangtagChar verifies the isLangtagChar function based on RFC 5646, Section 2.1,
-// which specifies that language tags are composed of alphanumeric subtags separated by hyphens.
-func Test_isLangtagChar(t *testing.T) {
+// TestIsLangtagChar verifies the isLangtagChar which specifies that language
+// tags are composed of alphanumeric subtags separated by hyphens.
+func TestIsLangtagChar(t *testing.T) {
 	tests := []struct {
 		name     string
 		r        rune
@@ -134,9 +132,9 @@ func Test_isLangtagChar(t *testing.T) {
 	}
 }
 
-// Test_isAlphabetic verifies the isAlphabetic function against RFC 5646, Section 2.1,
-// which defines purely alphabetic subtags like 'script' (4ALPHA).
-func Test_isAlphabetic(t *testing.T) {
+// TestIsAlphabetic verifies the isAlphabetic function which defines purely
+// alphabetic subtags like 'script' (4ALPHA).
+func TestIsAlphabetic(t *testing.T) {
 	tests := []struct {
 		name     string
 		s        string
@@ -161,9 +159,9 @@ func Test_isAlphabetic(t *testing.T) {
 	}
 }
 
-// Test_isNumeric verifies the isNumeric function against RFC 5646, Section 2.1,
-// which defines purely numeric subtags like some 'region' codes (3DIGIT).
-func Test_isNumeric(t *testing.T) {
+// TestIsNumeric verifies the isNumeric function which defines purely
+// numeric subtags like some 'region' codes (3DIGIT).
+func TestIsNumeric(t *testing.T) {
 	tests := []struct {
 		name     string
 		s        string
@@ -187,9 +185,9 @@ func Test_isNumeric(t *testing.T) {
 	}
 }
 
-// Test_isAlphanumeric verifies the isAlphanumeric function against RFC 5646, Section 2.1,
-// which defines alphanumeric subtags like 'variant' (e.g., 5*8alphanum).
-func Test_isAlphanumeric(t *testing.T) {
+// TestIsAlphanumeric verifies the isAlphanumeric function which defines
+// alphanumeric subtags like 'variant' (e.g., 5*8alphanum).
+func TestIsAlphanumeric(t *testing.T) {
 	tests := []struct {
 		name     string
 		s        string
@@ -214,9 +212,9 @@ func Test_isAlphanumeric(t *testing.T) {
 	}
 }
 
-// Test_writeTitleCase verifies the writeTitleCase function against RFC 5646, Section 2.1.1,
-// which recommends title case for script subtags (e.g., 'Cyrl').
-func Test_writeTitleCase(t *testing.T) {
+// TestWriteTitleCase verifies the writeTitleCase function which recommends title
+// case for script subtags (e.g., 'Cyrl').
+func TestWriteTitleCase(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string

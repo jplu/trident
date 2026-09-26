@@ -14,7 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-//nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to test unexported functions.
+// nolint:testpackage // This is a white-box test file for an internal package. It needs to be in the same package to
+// test unexported functions.
 package langtag
 
 import (
@@ -24,8 +25,7 @@ import (
 )
 
 // TestGetPositions ensures that the end positions of tag components are calculated correctly.
-// RFC 5646 defines a specific structure (langtag), and this function's correctness
-// is critical for all accessor methods on the LanguageTag struct.
+// This function's correctness is critical for all accessor methods on the LanguageTag struct.
 func TestGetPositions(t *testing.T) {
 	cpr := &canonicalParseRun{
 		language:   "zh",
@@ -36,7 +36,6 @@ func TestGetPositions(t *testing.T) {
 		extensions: []Extension{{Singleton: 'u', Value: "co-phonebk"}},
 	}
 
-	// zh(2) + -hak(4) + -Hans(5) + -CN(3) + -variant(8) + -u-co-phonebk(13)
 	expected := tagElementsPositions{
 		languageEnd:  2,
 		extlangEnd:   6,
@@ -73,7 +72,6 @@ func TestGetPositions(t *testing.T) {
 		language:   "en",
 		extensions: []Extension{{Singleton: 'a'}},
 	}
-	// en(2) + -a(2) = 4
 	expectedEmptyExt := tagElementsPositions{
 		languageEnd:  2,
 		extlangEnd:   2,
@@ -93,8 +91,7 @@ func TestGetPositions(t *testing.T) {
 }
 
 // TestRender ensures that the parsed components are reassembled into a correctly
-// formatted string per RFC 5646, Section 2.1.1 (lowercase language, title case
-// script, uppercase region).
+// formatted string.
 func TestRender(t *testing.T) {
 	testCases := []struct {
 		name     string

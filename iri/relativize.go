@@ -18,23 +18,34 @@ package iri
 
 import "strings"
 
-// Relativize computes a relative IRI reference that, when resolved against the
-// base IRI i, will result in the target IRI abs. This is the inverse of the
-// Resolve operation.
+// Relativize computes a relative IRI reference from a base IRI and a target absolute IRI.
 //
-// The method will return the full target IRI or a scheme-relative IRI if the
-// schemes or authorities differ. It returns ErrIriRelativize if the target
-// IRI's path contains dot-segments ("." or "..").
+// Specification Reference:
+// RFC 3987 (Section 6.5)
+//
+// Parameters:
+//   - abs: The target absolute IRI to relativize against the base.
+//
+// Returns:
+//   - *Ref: The generated relative IRI reference.
+//   - error: An error if relativization is not possible, such as when the target contains dot-segments.
 func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	base := i
 	absPath := abs.Path()
 
+	// Spec Rule: RFC 3986 (Section 5.2.4)
+	// Relative reference resolution relies on removing dot-segments. Target paths containing
+	// dot-segments must be rejected or normalized prior to computing relative references
+	// to prevent resolution path traversal vulnerabilities.
 	for _, segment := range strings.Split(absPath, "/") {
 		if segment == "." || segment == ".." {
 			return nil, ErrIriRelativize
 		}
 	}
 
+	// Spec Rule: RFC 3986 (Section 5.2.2)
+	// If the schemes differ, the target cannot be made relative to the base IRI,
+	// so the absolute target IRI must be returned as is.
 	if base.Scheme() != abs.Scheme() {
 		return ParseRef(abs.String())
 	}
@@ -42,6 +53,10 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	baseAuthority, hasBaseAuthority := base.Authority()
 	absAuthority, hasAbsAuthority := abs.Authority()
 
+	// Spec Rule: RFC 3986 (Section 5.2.2)
+	// If the authorities differ, we cannot construct a relative-path reference. Instead,
+	// we return a scheme-relative (network-path) reference if the target has an authority,
+	// or the full target IRI if the target lacks one.
 	if hasBaseAuthority != hasAbsAuthority || (hasBaseAuthority && baseAuthority != absAuthority) {
 		if !hasAbsAuthority {
 			return ParseRef(abs.String())
@@ -51,6 +66,9 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 
 	basePath := base.Path()
 
+	// Spec Rule: RFC 3986 (Section 5.2.2)
+	// An empty path with a defined authority requires a scheme-relative reference
+	// if the base has a path, to avoid inheriting the base path components.
 	if absPath == "" && basePath != "" {
 		if !hasAbsAuthority {
 			return ParseRef(abs.String())
@@ -69,13 +87,23 @@ func (i *Iri) Relativize(abs *Iri) (*Ref, error) {
 	return i.relativizeWithAuthority(abs)
 }
 
-// relativizeWithAuthority handles the most complex case where both IRIs have
-// an authority, and paths need to be compared.
+// relativizeWithAuthority computes a relative IRI reference when both base and target IRIs have an authority component.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2.2)
+//
+// Parameters:
+//   - abs: The target absolute IRI containing the authority and path.
+//
+// Returns:
+//   - *Ref: The generated relative IRI reference.
+//   - error: An error if parsing or reference construction fails.
 func (i *Iri) relativizeWithAuthority(abs *Iri) (*Ref, error) {
 	basePath := i.Path()
 	targetPath := abs.Path()
 
-	// Handle empty paths as root, per RFC 3986
+	// Step 1: Normalize Empty Paths
+	// Treat empty paths as the root directory "/" for consistent traversal logic.
 	if basePath == "" {
 		basePath = "/"
 	}
@@ -83,53 +111,44 @@ func (i *Iri) relativizeWithAuthority(abs *Iri) (*Ref, error) {
 		targetPath = "/"
 	}
 
-	// Determine the "directory" of the base path.
-	// If the base path ends with a '/', it's a directory.
-	// Otherwise, it's a "file", and its directory is the path up to the last '/'.
-	baseDir := basePath
-	lastSlash := strings.LastIndex(baseDir, "/")
-	if lastSlash > -1 {
-		baseDir = baseDir[:lastSlash+1]
-	}
+	// Step 2: Segment Paths
+	// Split base and target paths into directory segments and trailing file components to preserve structural
+	// boundaries.
+	baseDirSegs, _ := splitPathSegments(basePath)
+	targetDirSegs, targetFile := splitPathSegments(targetPath)
 
-	// Split the directories into segments for comparison.
-	// We trim the slashes to get clean segment lists.
-	baseSegs := strings.Split(strings.Trim(baseDir, "/"), "/")
-
-	trimmedTargetPath := strings.TrimPrefix(targetPath, "/")
-	targetSegs := strings.Split(trimmedTargetPath, "/")
-
-	// An empty split result means it was the root directory.
-	if baseDir == "/" {
-		baseSegs = []string{}
-	}
-	if targetPath == "/" {
-		targetSegs = []string{}
-	}
-
-	// Find the length of the common directory prefix.
+	// Step 3: Compute Common Prefix Length
+	// Identify how many segments of the path hierarchy are shared between the base and target.
 	commonLen := 0
-	for commonLen < len(baseSegs) && commonLen < len(targetSegs) && baseSegs[commonLen] == targetSegs[commonLen] {
+	for commonLen < len(baseDirSegs) && commonLen < len(targetDirSegs) && baseDirSegs[commonLen] == targetDirSegs[commonLen] {
 		commonLen++
 	}
 
 	var b strings.Builder
-	// For each directory in the base path that is not common, we need to go "up".
-	for i := commonLen; i < len(baseSegs); i++ {
+	// Step 4: Append Upward Traversals
+	// For each directory segment in the base path that is not shared with the target, append a relative parent
+	// directory segment ("../").
+	for i := commonLen; i < len(baseDirSegs); i++ {
 		b.WriteString("../")
 	}
 
-	// Now, append the remaining part of the target path.
-	b.WriteString(strings.Join(targetSegs[commonLen:], "/"))
+	// Step 5: Append Remaining Target Segments
+	// Append the remaining directory and file segments of the target path starting from the first non-common segment.
+	if commonLen < len(targetDirSegs) {
+		b.WriteString(strings.Join(targetDirSegs[commonLen:], "/"))
+		b.WriteString("/")
+	}
+	b.WriteString(targetFile)
+
 	relPath := b.String()
 
-	// If we produce an empty string, it means the target is in the same directory
-	// as the base "file". The correct representation for this is ".".
+	// Implementation Note: Directory Edge Cases
+	// If the relative path is empty, check if the target is a directory itself.
+	// If the target is a directory, the correct relative reference is the current directory "." to avoid resolution
+	// confusion.
 	if relPath == "" {
-		// This handles the case where base is "a/b" and target is "a/c", producing "c".
-		// But if base is "a/b" and target is "a/", we need "."
 		lastTargetSlash := strings.LastIndex(targetPath, "/")
-		if lastTargetSlash > -1 && targetPath[lastTargetSlash+1:] == "" { // target is a directory
+		if lastTargetSlash > -1 && targetPath[lastTargetSlash+1:] == "" {
 			return buildRelativeRef(".", abs)
 		}
 	}
@@ -137,18 +156,37 @@ func (i *Iri) relativizeWithAuthority(abs *Iri) (*Ref, error) {
 	return buildRelativeRef(relPath, abs)
 }
 
-// buildRelativeRef constructs the final relative reference string from a relative path
-// and the query/fragment parts of the absolute target IRI.
+// buildRelativeRef constructs the final relative reference string from a relative path and the target query and
+// fragment components.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.3)
+//
+// Parameters:
+//   - relPath: The pre-computed relative path.
+//   - abs: The absolute target IRI containing query and fragment components to preserve.
+//
+// Returns:
+//   - *Ref: The constructed relative IRI reference.
+//   - error: An error if the constructed reference fails to parse.
 func buildRelativeRef(relPath string, abs *Iri) (*Ref, error) {
 	absQuery, hasAbsQuery := abs.Query()
 	absFragment, hasAbsFragment := abs.Fragment()
 
 	var b strings.Builder
+	// Step 1: Append Path
+	// Write the resolved relative path to the output builder.
 	b.WriteString(relPath)
+
+	// Step 2: Append Query
+	// If the target IRI contains a query component, append it prefixed by "?".
 	if hasAbsQuery {
 		b.WriteRune('?')
 		b.WriteString(absQuery)
 	}
+
+	// Step 3: Append Fragment
+	// If the target IRI contains a fragment component, append it prefixed by "#".
 	if hasAbsFragment {
 		b.WriteRune('#')
 		b.WriteString(absFragment)
@@ -156,40 +194,59 @@ func buildRelativeRef(relPath string, abs *Iri) (*Ref, error) {
 	return ParseRef(b.String())
 }
 
-// relativizeForNoAuthority handles relativization when both IRIs lack an authority part.
+// relativizeForNoAuthority computes a relative reference when both IRIs lack an authority component.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2.2)
+//
+// Parameters:
+//   - abs: The target absolute IRI containing the unshaded relative path.
+//
+// Returns:
+//   - *Ref: The generated relative IRI reference.
+//   - error: An error if parsing or reference construction fails.
 func (i *Iri) relativizeForNoAuthority(abs *Iri) (*Ref, error) {
 	basePath := i.Path()
 	absPath := abs.Path()
 
-	baseSegs := strings.Split(basePath, "/")
-	absSegs := strings.Split(absPath, "/")
+	// Step 1: Segment Paths
+	// Split base and target paths into directory segments and trailing file components to preserve structural
+	// boundaries.
+	baseDirSegs, _ := splitPathSegments(basePath)
+	absDirSegs, absFile := splitPathSegments(absPath)
 
-	var baseDirSegs []string
-	if !strings.HasSuffix(basePath, "/") {
-		if len(baseSegs) > 0 {
-			baseDirSegs = baseSegs[:len(baseSegs)-1]
-		}
-	} else {
-		baseDirSegs = baseSegs[:len(baseSegs)-1]
-	}
-
+	// Step 2: Count Shared Segments
+	// Find the shared common prefix segments between the base directory and the target.
 	commonSegs := 0
-	for commonSegs < len(baseDirSegs) && commonSegs < len(absSegs) && baseDirSegs[commonSegs] == absSegs[commonSegs] {
+	for commonSegs < len(baseDirSegs) && commonSegs < len(absDirSegs) && baseDirSegs[commonSegs] == absDirSegs[commonSegs] {
 		commonSegs++
 	}
 
 	var b strings.Builder
+	// Step 3: Traverse Upward
+	// Append parent directory segments ("../") for any unshared segments of the base path.
 	for i := commonSegs; i < len(baseDirSegs); i++ {
 		b.WriteString("../")
 	}
 
-	b.WriteString(strings.Join(absSegs[commonSegs:], "/"))
+	// Step 4: Append Remaining Target Segments
+	// Append the remaining directory and file segments of the target path.
+	if commonSegs < len(absDirSegs) {
+		b.WriteString(strings.Join(absDirSegs[commonSegs:], "/"))
+		b.WriteString("/")
+	}
+	b.WriteString(absFile)
 
 	relPath := b.String()
 	if relPath == "" && basePath != absPath {
 		relPath = "."
 	}
 
+	// Step 5: Avoid Colon Ambiguity
+	// Spec Rule: RFC 3986 (Section 4.2)
+	// A relative-path reference cannot contain a colon in its first segment, as it would be
+	// mistaken for a scheme component. If a colon appears in the first segment before any
+	// slash, prepend "./" to disambiguate the relative path.
 	if !strings.HasPrefix(relPath, ".") && !strings.HasPrefix(relPath, "/") {
 		firstColon := strings.Index(relPath, ":")
 		if firstColon != -1 {
@@ -203,18 +260,32 @@ func (i *Iri) relativizeForNoAuthority(abs *Iri) (*Ref, error) {
 	return buildRelativeRef(relPath, abs)
 }
 
-// relativizeForSamePathWithEmptyTargetQuery handles a specific edge case where
-// paths match, but the target has no query while the base does.
+// relativizeForSamePathWithEmptyTargetQuery computes a relative reference for the case where base and target paths
+// match but the target has no query.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2.2)
+//
+// Parameters:
+//   - abs: The target absolute IRI.
+//
+// Returns:
+//   - *Ref: The generated relative IRI reference.
+//   - error: An error if reference parsing fails.
 func (i *Iri) relativizeForSamePathWithEmptyTargetQuery(abs *Iri) (*Ref, error) {
 	_, hasAbsAuthority := abs.Authority()
 
-	// If the target has no authority, its structure is incompatible with a base
-	// that has one. The only valid reference is the full absolute IRI.
+	// Step 1: Check Target Authority
+	// If the target lacks an authority, it cannot be relativized against a base with
+	// an authority, so return the full target IRI.
 	if !hasAbsAuthority {
 		return ParseRef(abs.String())
 	}
 
 	absPath := abs.Path()
+	// Step 2: Compute Relative Path
+	// If the target path is not empty, extract the last segment of the path.
+	// If this segment is empty, fall back to the current directory indicator ".".
 	if absPath != "" {
 		lastSlash := strings.LastIndex(absPath, "/")
 		relPath := absPath[lastSlash+1:]
@@ -224,17 +295,31 @@ func (i *Iri) relativizeForSamePathWithEmptyTargetQuery(abs *Iri) (*Ref, error) 
 		return buildRelativeRef(relPath, abs)
 	}
 
-	// Path is empty and we know it has an authority, so create a scheme-relative ref.
+	// Step 3: Handle Scheme-Relative Reference
+	// If the target path is empty and has an authority, return a scheme-relative reference.
 	return ParseRef(abs.String()[abs.positions.SchemeEnd:])
 }
 
-// relativizeForSamePath handles relativization when base and target paths are identical.
+// relativizeForSamePath computes a relative reference when the base and target IRI paths are identical.
+//
+// Specification Reference:
+// RFC 3986 (Section 5.2.2)
+//
+// Parameters:
+//   - abs: The target absolute IRI with the identical path.
+//
+// Returns:
+//   - *Ref: The generated relative IRI reference.
+//   - error: An error if reference construction or parsing fails.
 func (i *Iri) relativizeForSamePath(abs *Iri) (*Ref, error) {
 	base := i
 	baseQuery, hasBaseQuery := base.Query()
 	absQuery, hasAbsQuery := abs.Query()
 	absFragment, hasAbsFragment := abs.Fragment()
 
+	// Step 1: Compare Queries
+	// If the base and target queries are identical, the relative reference only needs the
+	// target fragment (or can be completely empty if there is no fragment).
 	if hasBaseQuery == hasAbsQuery && baseQuery == absQuery {
 		if hasAbsFragment {
 			return ParseRef("#" + absFragment)
@@ -242,9 +327,29 @@ func (i *Iri) relativizeForSamePath(abs *Iri) (*Ref, error) {
 		return ParseRef("")
 	}
 
+	// Step 2: Handle Empty Target Query Edge Case
+	// If the target has no query but the base has one, delegate to the specialized handler.
 	if !hasAbsQuery && hasBaseQuery {
 		return i.relativizeForSamePathWithEmptyTargetQuery(abs)
 	}
 
+	// Step 3: Return Relative Reference after Path
+	// If queries differ and the target has a query, slice the target string starting from the end
+	// of the path to retain the query and fragment.
 	return ParseRef(abs.String()[abs.positions.PathEnd:])
+}
+
+// splitPathSegments splits a path into directory segments and a final file segment.
+//
+// Representation:
+// A slice of directory segment strings and a trailing file segment string.
+func splitPathSegments(path string) ([]string, string) {
+	if path == "" {
+		return nil, ""
+	}
+	segs := strings.Split(path, "/")
+	if strings.HasSuffix(path, "/") {
+		return segs[:len(segs)-1], ""
+	}
+	return segs[:len(segs)-1], segs[len(segs)-1]
 }
